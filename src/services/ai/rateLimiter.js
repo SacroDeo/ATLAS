@@ -1,0 +1,107 @@
+// src/services/ai/rateLimiter.js
+// In-memory rate limiter — no Redis needed, resets on restart (acceptable for this scale)
+
+class RateLimiter {
+  constructor() {
+    // Map<userId, { count: number, windowStart: number, warningsSent: number }>
+    this.userWindows = new Map();
+
+    this.LIMITS = {
+      MESSAGES_PER_MINUTE: 8,       // max conversational messages per 60s
+      TASK_GENERATIONS_PER_HOUR: 5, // max GENERATE_TASKS actions per hour
+      WARN_AT: 6,                    // warn user at this count before hard block
+    };
+
+    // Task generation has a separate hourly window
+    // Map<userId, { count: number, windowStart: number }>
+    this.taskGenWindows = new Map();
+
+    // Cleanup stale entries every 5 minutes
+    setInterval(() => this._cleanup(), 5 * 60 * 1000);
+  }
+
+  /**
+   * Check if a user can send a message.
+   * Returns { allowed: boolean, retryAfterSeconds: number, warn: boolean }
+   */
+  checkMessage(userId) {
+    const now = Date.now();
+    const WINDOW_MS = 60 * 1000;
+
+    let entry = this.userWindows.get(userId);
+
+    if (!entry || now - entry.windowStart >= WINDOW_MS) {
+      entry = { count: 0, windowStart: now, warningsSent: 0 };
+    }
+
+    entry.count++;
+    this.userWindows.set(userId, entry);
+
+    if (entry.count > this.LIMITS.MESSAGES_PER_MINUTE) {
+      const retryAfterSeconds = Math.ceil(
+        (WINDOW_MS - (now - entry.windowStart)) / 1000
+      );
+      return { allowed: false, retryAfterSeconds, warn: false };
+    }
+
+    const warn = entry.count === this.LIMITS.WARN_AT && entry.warningsSent === 0;
+    if (warn) entry.warningsSent++;
+
+    return { allowed: true, retryAfterSeconds: 0, warn };
+  }
+
+  /**
+   * Check if a user can trigger task generation.
+   * Returns { allowed: boolean, retryAfterSeconds: number }
+   */
+  checkTaskGeneration(userId) {
+    const now = Date.now();
+    const WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+    let entry = this.taskGenWindows.get(userId);
+
+    if (!entry || now - entry.windowStart >= WINDOW_MS) {
+      entry = { count: 0, windowStart: now };
+    }
+
+    entry.count++;
+    this.taskGenWindows.set(userId, entry);
+
+    if (entry.count > this.LIMITS.TASK_GENERATIONS_PER_HOUR) {
+      const retryAfterSeconds = Math.ceil(
+        (WINDOW_MS - (now - entry.windowStart)) / 1000
+      );
+      return { allowed: false, retryAfterSeconds };
+    }
+
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  /**
+   * Format retry time into a human-readable string.
+   */
+  formatRetryTime(seconds) {
+    if (seconds < 60) return `${seconds} seconds`;
+    return `${Math.ceil(seconds / 60)} minutes`;
+  }
+
+  _cleanup() {
+    const now = Date.now();
+    const MSG_WINDOW = 60 * 1000;
+    const TASK_WINDOW = 60 * 60 * 1000;
+
+    for (const [userId, entry] of this.userWindows.entries()) {
+      if (now - entry.windowStart > MSG_WINDOW * 2) {
+        this.userWindows.delete(userId);
+      }
+    }
+
+    for (const [userId, entry] of this.taskGenWindows.entries()) {
+      if (now - entry.windowStart > TASK_WINDOW * 2) {
+        this.taskGenWindows.delete(userId);
+      }
+    }
+  }
+}
+
+module.exports = new RateLimiter();
