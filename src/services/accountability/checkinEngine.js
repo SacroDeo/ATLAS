@@ -151,8 +151,13 @@ const checkinEngine = {
 
   _renderTemplate(type, user, snapshot) {
     const pool = TEMPLATES[type] || TEMPLATES.momentum;
-    // Deterministic selection based on user id to avoid same message repeating
-    const index = (user.id || 0) % pool.length;
+    // Deterministic selection to avoid repeating the same message.
+    // user.id is a UUID string, so hash it instead of using % directly
+    // (string % number is NaN, which used to crash this function).
+    const idHash = String(user.id || '')
+      .split('')
+      .reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) >>> 0, 0);
+    const index = idHash % pool.length;
     const template = pool[index];
 
     const inactivityDays = Math.floor(snapshot.inactivityHours / 24);
