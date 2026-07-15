@@ -1,5 +1,6 @@
 // src/core/execution/executors/deleteTasksExecutor.js
 const taskQueries = require('../../../database/queries/taskQueries');
+const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
 
 class DeleteTasksExecutor {
@@ -15,13 +16,14 @@ class DeleteTasksExecutor {
     return [...new Set(nums)]; // deduplicate
   }
 
-  async execute(plan, context) {
+ async execute(plan, context) {
     try {
       const userId = context.user.id;
       const target = plan.payload?.target;
       const rawNumbers = plan.payload?.task_number;
 
-      const today = new Date().toISOString().split('T')[0];
+      const userNow = timezoneUtils.getCurrentTimeInZone(context.user.timezone || 'UTC');
+const today = userNow.toISOString().split('T')[0];
       const tasks = await taskQueries.getDailyTasks(userId, today);
 
       if (!tasks || tasks.length === 0) {

@@ -1,4 +1,5 @@
 // src/cron/dailyCron.js
+// src/cron/dailyCron.js
 const cron = require('node-cron');
 const dailyTaskGenerator = require('../services/ai/dailyTaskGenerator');
 const memoryService = require('../services/memory/memoryService');
@@ -10,6 +11,9 @@ const inlineKeyboards = require('../bot/keyboards/inlineKeyboards');
 const timezoneUtils = require('../utils/timezoneUtils');
 const telegramUtils = require('../utils/telegramUtils');
 const logger = require('../utils/logger');
+const telegramClient = require('../utils/telegram/telegramClient'); // ADD THIS LINE
+const atlasCommands = require('../utils/atlasCommands');
+
 
 class DailyCron {
   constructor() {
@@ -26,7 +30,7 @@ class DailyCron {
   start() {
     if (!this.bot) {
       logger.warn('Bot instance not set for daily cron. Will attempt to find it.');
-      const app = require('../../app');
+      const app = require('../../server');
       this.bot = app.bot;
     }
 
@@ -61,6 +65,10 @@ class DailyCron {
           const existingTasks = await taskQueries.getDailyTasks(user.id, userToday);
           if (existingTasks && existingTasks.length > 0) {
             continue; // Tasks genuinely delivered
+          }
+          const pendingOld = await taskQueries.getPendingTasksBefore(user.id, userToday);
+          if (pendingOld.length > 0) {
+            continue; // Waiting for user's skip/keep decision — don't re-ask
           }
           logger.info(`[checkAndSendTasks] User ${user.telegram_id} has sent-date but no tasks — will retry`);
         }
@@ -248,6 +256,14 @@ class DailyCron {
       }
 
       if (user.task_mode === 'ai') {
+        const gateTz = user.timezone || 'UTC';
+        const gateToday = timezoneUtils.getCurrentTimeInZone(gateTz).toISOString().split('T')[0];
+        const pendingOld = await taskQueries.getPendingTasksBefore(user.id, gateToday);
+        if (pendingOld.length > 0) {
+          logger.info(`[processUser] User ${user.telegram_id} has ${pendingOld.length} pending old tasks — asking skip/keep instead of generating`);
+          await this.sendPendingDecision(user, pendingOld);
+          return { success: true, tasksSent: 0, error: null };
+        }
         logger.info(`[processUser] User ${user.telegram_id} is AI mode, generating tasks`);
         tasks = await dailyTaskGenerator.generateTasksForUser(user.telegram_id);
         logger.info(`[processUser] Generated ${tasks ? tasks.length : 0} tasks`);
@@ -259,11 +275,8 @@ class DailyCron {
         }
 
         logger.info(`[processUser] Sending ${tasks.length} tasks to Telegram`);
-        await this.sendDailyTasks(user, tasks);
-        logger.info(`[processUser] Tasks sent successfully`);
-
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        await this.sendMorningQuestion(user);
+await this.sendDailyTasks(user, tasks);
+logger.info(`[processUser] Tasks sent successfully`);
       } else {
         logger.info(`[processUser] User ${user.telegram_id} is manual mode, skipping task generation`);
         await this.sendMorningQuestion(user);
@@ -295,12 +308,41 @@ class DailyCron {
     }
   }
 
+  // Sends the ATLAS command list. Appended to every morning delivery so users
+  // always have a way back to the commands without remembering /help. Failures
+  // are swallowed — a missing footer must never break task delivery.
+  async sendCommandsFooter(user) {
+    try {
+      await telegramClient.sendMessage(
+        this.bot,
+        user.telegram_id,
+        atlasCommands.commandsFooter(),
+        { parse_mode: 'Markdown' }
+      );
+    } catch (error) {
+      logger.error(`Failed to send commands footer to ${user.telegram_id}:`, error);
+    }
+  }
+
+  async sendPendingDecision(user, pendingTasks) {
+    const list = pendingTasks
+      .map((t, i) => `${i + 1}. ${t.title} (${t.assigned_date})`)
+      .join('\n');
+    await telegramClient.sendMessage(
+      this.bot,
+      user.telegram_id,
+      `⏳ You still have unfinished tasks from before:\n\n${list}\n\nI won't generate new tasks until these are handled. What do you want to do?`,
+      inlineKeyboards.pendingDecision()
+    );
+  }
+
   async handleNoCompletion(user) {
     const consecutiveMisses = await checkinQueries.getConsecutiveMisses(user.id);
 
     if (consecutiveMisses >= 3) {
       try {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           user.telegram_id,
           `👋 Hey! I've noticed you've been away for ${consecutiveMisses} days.\n\n` +
           'What\'s blocking you right now?',
@@ -319,8 +361,40 @@ class DailyCron {
     try {
       const tone = personalityService.getPersonalityTone(user.personality_type);
       const taskIntro = personalityService.getTaskIntro(user.personality_type);
+      // Re-send yesterday's still-pending tasks with action buttons
+      const userTz = user.timezone || 'UTC';
+      const yesterdayInTz = timezoneUtils.getCurrentTimeInZone(userTz);
+      yesterdayInTz.setDate(yesterdayInTz.getDate() - 1);
+      const yesterdayStr = yesterdayInTz.toISOString().split('T')[0];
+      const yesterdayTasks = await taskQueries.getDailyTasks(user.id, yesterdayStr);
+      const pendingYesterday = yesterdayTasks.filter(t => t.status === 'pending');
 
-      await this.bot.sendMessage(
+      if (pendingYesterday.length > 0) {
+        await telegramClient.sendMessage(
+          this.bot,
+          user.telegram_id,
+          `⚠️ *Yesterday's unfinished tasks*\n\nComplete or skip these before asking for new ones:`,
+          { parse_mode: 'MarkdownV2' }
+        );
+
+        for (const oldTask of pendingYesterday) {
+          const oldKeyboard = inlineKeyboards.taskActions(oldTask.id);
+          await telegramClient.sendMessage(
+            this.bot,
+            user.telegram_id,
+            `↩️ *${telegramUtils.escapeMarkdown(oldTask.title)}*\n⏱️ ${telegramUtils.escapeMarkdown(oldTask.estimated_time || '')}`,
+            {
+              parse_mode: 'MarkdownV2',
+              reply_markup: oldKeyboard.reply_markup,
+            }
+          );
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         `🌅 *Good Morning\\!*\n\n🎯 *Today's Mission*\n${telegramUtils.escapeMarkdown(taskIntro)}`,
         { parse_mode: 'MarkdownV2' }
@@ -344,7 +418,8 @@ class DailyCron {
           `📊 *Difficulty:* ${safeDifficulty}`;
 
         const keyboard = inlineKeyboards.taskActions(task.id);
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           user.telegram_id,
           taskMessage,
           {
@@ -360,11 +435,14 @@ class DailyCron {
 
       const safeEncouragement = telegramUtils.escapeMarkdown(tone.encouragement);
 
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         `${safeEncouragement}\n\n🔥 Current streak: ${user.current_streak} days`,
         { parse_mode: 'MarkdownV2' }
       );
+
+      await this.sendCommandsFooter(user);
 
       logger.info(`[sendDailyTasks] All tasks sent successfully to user ${user.telegram_id}`);
     } catch (error) {
@@ -397,7 +475,8 @@ class DailyCron {
 
       const name = user.first_name || 'there';
 
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         `☀️ Good morning, ${name}! How would you like your tasks today?`,
         {
@@ -413,11 +492,14 @@ class DailyCron {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       const q = MORNING_QUESTIONS[Math.floor(Math.random() * MORNING_QUESTIONS.length)];
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         `💬 Also — ${q}\n\nJust reply naturally — I'll keep it in mind all day.`,
         { parse_mode: 'Markdown' }
       );
+
+      await this.sendCommandsFooter(user);
 
       const { supabase } = require('../config/supabase');
       await supabase
@@ -435,7 +517,8 @@ class DailyCron {
 
   async sendFallbackTasks(user) {
     try {
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         `🎯 *Today's Focus*\n\n` +
         `Sorry, I couldn't generate personalized tasks today\\. Here's a general plan:\n\n` +
@@ -451,6 +534,7 @@ class DailyCron {
         `I'll be back to normal tomorrow\\! 💪`,
         { parse_mode: 'MarkdownV2' }
       );
+      await this.sendCommandsFooter(user);
     } catch (error) {
       logger.error(`Failed to send fallback tasks to ${user.telegram_id}:`, error);
     }

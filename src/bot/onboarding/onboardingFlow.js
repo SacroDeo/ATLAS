@@ -4,6 +4,7 @@ const userQueries = require('../../database/queries/userQueries');
 const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 const { dailyCron } = require('../../cron/dailyCron');
+const telegramClient = require('../../utils/telegram/telegramClient');
 
 class OnboardingFlow {
   constructor(bot) {
@@ -62,7 +63,7 @@ class OnboardingFlow {
       }
 
       if (user.onboarding_completed) {
-        await this.bot.sendMessage(chatId,
+        await telegramClient.sendMessage(this.bot, chatId,
           "You're all set! Use /start to view your tasks or /help for commands."
         );
         return;
@@ -97,7 +98,7 @@ class OnboardingFlow {
     } catch (error) {
       logger.error(`Onboarding error for ${telegramId}:`, error);
       this.userStates.delete(telegramId);
-      await this.bot.sendMessage(chatId, 'Something went wrong. Type /start to try again.');
+      await telegramClient.sendMessage(this.bot, chatId, 'Something went wrong. Type /start to try again.');
     }
   }
 
@@ -164,7 +165,8 @@ class OnboardingFlow {
   }
 
   async _askGoal(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*What's the one goal you want to work on — and when do you want to achieve it by?*\n\n" +
       "Examples:\n" +
@@ -178,7 +180,7 @@ class OnboardingFlow {
 
   async _processGoal(chatId, telegramId, text, userState) {
     if (!text || text.trim().length < 5) {
-      await this.bot.sendMessage(chatId,
+      await telegramClient.sendMessage(this.bot, chatId,
         "Could you be a bit more specific? Include what you want to achieve and roughly when."
       );
       return;
@@ -186,7 +188,7 @@ class OnboardingFlow {
 
     const hasTimeframe = /\b(\d+\s*(day|days|week|weeks|month|months|year|years)|by\s+\w+|in\s+\d+|within\s+\d+)\b/i.test(text);
     if (!hasTimeframe) {
-      await this.bot.sendMessage(chatId,
+      await telegramClient.sendMessage(this.bot, chatId,
         "Got it! One quick addition — *when do you want to achieve this by?*\n\n" +
         "E.g. '3 months', 'by December', '6 weeks' — just reply with a timeframe.",
         { parse_mode: 'Markdown' }
@@ -221,12 +223,13 @@ class OnboardingFlow {
       goal: fullGoal,
     });
 
-    await this.bot.sendMessage(chatId, `Perfect. *Goal locked in:* _${fullGoal}_`, { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(this.bot, chatId, `Perfect. *Goal locked in:* _${fullGoal}_`, { parse_mode: 'Markdown' });
     await this._askDomainKnowledge(chatId);
   }
 
   async _askDomainKnowledge(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*How familiar are you with this field right now?*\n\n" +
       "Be honest — I'll calibrate your tasks accordingly.",
@@ -275,12 +278,13 @@ class OnboardingFlow {
       advanced:     '🚀 Advanced — straight to the hard stuff.',
     };
 
-    await this.bot.sendMessage(chatId, `Got it. ${labels[normalized]}`, { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(this.bot, chatId, `Got it. ${labels[normalized]}`, { parse_mode: 'Markdown' });
     await this._askAvailableTime(chatId);
   }
 
   async _askAvailableTime(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*How much time can you realistically set aside each day for this?*\n\n" +
       "Be honest — consistency beats intensity. " +
@@ -294,7 +298,7 @@ class OnboardingFlow {
     const hasNumber      = /\d+/.test(text);
 
     if (!hasTimeKeyword || !hasNumber) {
-      await this.bot.sendMessage(chatId,
+      await telegramClient.sendMessage(this.bot, chatId,
         'Include a number with hours or minutes — e.g. "1 hour", "30 minutes", "2 hours on weekdays".'
       );
       return;
@@ -313,7 +317,8 @@ class OnboardingFlow {
   }
 
   async _askBiggestStruggle(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*What usually stops you from staying consistent?*\n\n" +
       "Be honest — I'll use this to adjust pacing and task style.",      {
@@ -359,7 +364,8 @@ class OnboardingFlow {
       biggest_struggle: displayLabel,
     });
 
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       `Got it — "${displayLabel}". I'll adapt your pace and task style around this.`,
       { parse_mode: 'Markdown' }
@@ -369,7 +375,8 @@ class OnboardingFlow {
   }
 
   async _askPreferredTime(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*What time should I send your daily tasks?*\n\nPick one or type a custom time.",
       {
@@ -403,7 +410,7 @@ class OnboardingFlow {
   async _processCustomTime(chatId, telegramId, text, userState) {
     const parsedTime = timezoneUtils.parseTimeInput(text);
     if (!parsedTime) {
-      await this.bot.sendMessage(chatId,
+      await telegramClient.sendMessage(this.bot, chatId,
         "Couldn't parse that time. Try something like '7:30 AM' or '9 PM'."
       );
       return;
@@ -429,7 +436,8 @@ class OnboardingFlow {
 
     if (guessed) {
       const displayName = timezoneUtils.getTimezoneDisplayName(guessed);
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         `I detected your timezone as *${displayName}*. Is that right?`,
         {
@@ -443,7 +451,8 @@ class OnboardingFlow {
         }
       );
     } else {
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         "What timezone are you in?\n\n" +
         "Type your city or country (e.g. 'India', 'London', 'New York', 'IST', 'UTC+5:30')."
@@ -455,7 +464,7 @@ class OnboardingFlow {
     const parsed = timezoneUtils.parseUserInput(text);
 
     if (!parsed || !timezoneUtils.isValidIANA(parsed)) {
-      await this.bot.sendMessage(chatId,
+      await telegramClient.sendMessage(this.bot, chatId,
         "Couldn't find that timezone. Try a city name (e.g. 'Mumbai', 'London') or abbreviation (e.g. 'IST', 'EST')."
       );
       return;
@@ -478,7 +487,8 @@ class OnboardingFlow {
   }
 
   async _askStartDate(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "📅 *When do you want to start getting tasks?*",
       {
@@ -508,7 +518,8 @@ class OnboardingFlow {
   }
 
   async _askTaskMode(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "🧠 *How should tasks work?*\n\n" +
       "I can generate tasks based on your goal, or you can enter them yourself.\n\n" +
@@ -552,7 +563,8 @@ class OnboardingFlow {
     await userQueries.updateOnboardingState(telegramId, 'completed', userDataToSave);
     this.userStates.delete(telegramId);
 
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       `✅ *You're all set!*\n\n` +
       `*How to use ATLAS:*\n` +
@@ -563,16 +575,17 @@ class OnboardingFlow {
       { parse_mode: 'Markdown' }
     );
 
-    await this.bot.sendMessage(chatId, `🗺️ Generating your roadmap...`);
+    await telegramClient.sendMessage(this.bot, chatId, `🗺️ Generating your roadmap...`);
 
     try {
       const roadmapGenerator = require('../../services/ai/roadmapGenerator');
       const freshUser = await userQueries.getUserByTelegramId(telegramId);
       const roadmap = await roadmapGenerator.generate(freshUser);
-      await this.bot.sendMessage(chatId, roadmap, { parse_mode: 'Markdown' });
+      await telegramClient.sendMessage(this.bot, chatId, roadmap, { parse_mode: 'Markdown' });
       
       // NEW
-await this.bot.sendMessage(
+await telegramClient.sendMessage(
+  this.bot,
   chatId,
   'Want me to break this down into *weekly milestones*?',
   {
@@ -588,11 +601,7 @@ await this.bot.sendMessage(
   }
 );
 
-// Set a DB flag so messageHandler knows we're awaiting life struggle
-// regardless of whether user presses a button or just types
-await userQueries.updateOnboardingState(telegramId, 'completed', {
-  awaiting_life_struggle: true,
-});
+// nothing needed here — life_struggle column handles state
     } catch (err) {
       logger.error(`Roadmap generation failed for ${telegramId}:`, err);
       await this._afterRoadmap(chatId, telegramId, data, startingToday, isManual);
@@ -600,9 +609,10 @@ await userQueries.updateOnboardingState(telegramId, 'completed', {
   }
 
   async _sendWelcome(chatId, telegramId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
-      "👋 Welcome to *ATLAS* — your AI accountability partner.\n\n" +
+      "👋 Welcome to *ATLAS* — your AI personal goal assistant.\n\n" +
       "Before we set you up, let me show you exactly how this works.\n\n" +
       "_(Takes 30 seconds — don't skip this or you'll be confused later 😅)_",
       {
@@ -620,7 +630,7 @@ await userQueries.updateOnboardingState(telegramId, 'completed', {
     const user = await userQueries.getUserByTelegramId(telegramId);
 
     if (!user || !user.roadmap) {
-      await this.bot.sendMessage(chatId, 'Could not find your roadmap. Type /start and try again.');
+      await telegramClient.sendMessage(this.bot, chatId, 'Could not find your roadmap. Type /start and try again.');
       return;
     }
 
@@ -645,17 +655,18 @@ Max 4 words per week focus. Max 12 weeks. No commentary before or after.`
       }
     ];
 
-    await this.bot.sendMessage(chatId, '📅 Breaking it down into weeks...');
+    await telegramClient.sendMessage(this.bot, chatId, '📅 Breaking it down into weeks...');
 
     const breakdown = await aiOrchestrator.execute(messages, { temperature: 0.6, maxTokens: 400 });
 
-    await this.bot.sendMessage(chatId, breakdown.trim(), { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(this.bot, chatId, breakdown.trim(), { parse_mode: 'Markdown' });
 
     await this._askLifeStruggle(chatId);
   }
 
   async _askLifeStruggle(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "One last thing before we start.\n\n" +
       "*What's the biggest obstacle in your life right now that could get in the way of this goal?*\n\n" +
@@ -666,6 +677,10 @@ Max 4 words per week focus. Max 12 weeks. No commentary before or after.`
   }
 
   async _handleLifeStruggleAnswer(chatId, telegramId, text, user) {
+    await userQueries.updateOnboardingState(telegramId, 'completed', {
+  life_struggle: text.trim(),
+  awaiting_life_struggle: false,
+});
     await userQueries.saveProgressiveAnswer(telegramId, 'life_struggle', text.trim());
 
     try {
@@ -686,10 +701,10 @@ Be concise. Be real.`
       ];
 
       const advice = await aiOrchestrator.execute(messages, { temperature: 0.7, maxTokens: 200 });
-      await this.bot.sendMessage(chatId, advice.trim(), { parse_mode: 'Markdown' });
+      await telegramClient.sendMessage(this.bot, chatId, advice.trim(), { parse_mode: 'Markdown' });
     } catch (err) {
       logger.error(`Life struggle AI advice failed for ${telegramId}:`, err);
-      await this.bot.sendMessage(chatId, "Got it — I'll factor that into how I pace your tasks.");
+      await telegramClient.sendMessage(this.bot, chatId, "Got it — I'll factor that into how I pace your tasks.");
     }
 
     await this._askFinalTaskMode(chatId);
@@ -705,7 +720,8 @@ Be concise. Be real.`
     }
 
     if (isManual) {
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         "👉 Go ahead — tell me your first task. Just type it naturally:\n\n" +
         "_\"Study React hooks for 45 mins\"_\n" +
@@ -716,7 +732,8 @@ Be concise. Be real.`
   }
 
   async _askFinalTaskMode(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       "*How do you want to handle your daily tasks?*\n\n" +
       "1️⃣ *AI generates them* — I build tasks daily based on your roadmap and progress\n" +
@@ -734,7 +751,8 @@ Be concise. Be real.`
   }
 
   async _sendHowItWorks(chatId) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       '📖 *Here\'s exactly how ATLAS works:*\n\n' +
       '*Step 1 — Tell me your goal*\n' +
@@ -784,7 +802,7 @@ Be concise. Be real.`
     const data       = callbackQuery.data;
 
     try {
-      await this.bot.answerCallbackQuery(callbackQuery.id);
+      await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
 
       if (data === 'onboarding_how_it_works') {
         await this._sendHowItWorks(chatId);
@@ -836,7 +854,7 @@ Be concise. Be real.`
           userState.state     = 'awaiting_custom_time';
           userState.updatedAt = Date.now();
           this.userStates.set(telegramId, userState);
-          await this.bot.sendMessage(chatId, "What time? Type something like '7:30 AM' or '9 PM'.");
+          await telegramClient.sendMessage(this.bot, chatId, "What time? Type something like '7:30 AM' or '9 PM'.");
         }
         return;
       }
@@ -847,7 +865,7 @@ Be concise. Be real.`
           userState.state     = 'awaiting_manual_timezone';
           userState.updatedAt = Date.now();
           this.userStates.set(telegramId, userState);
-          await this.bot.sendMessage(chatId, "Type your city or timezone (e.g. 'New York', 'London', 'IST').");
+          await telegramClient.sendMessage(this.bot, chatId, "Type your city or timezone (e.g. 'New York', 'London', 'IST').");
         }
         return;
       }
@@ -859,7 +877,7 @@ Be concise. Be real.`
             userState.state     = 'awaiting_start_date';
             userState.updatedAt = Date.now();
             this.userStates.set(telegramId, userState);
-            await this.bot.sendMessage(chatId,
+            await telegramClient.sendMessage(this.bot, chatId,
               "What date should I start? (e.g. 'Monday', 'June 15', 'next week')"
             );
             return;
@@ -885,7 +903,7 @@ Be concise. Be real.`
           logger.warn(`[Callback] knowledge_ — userState missing for ${telegramId}, recovering from DB`);
           const dbUser = await userQueries.getUserByTelegramId(telegramId);
           if (!dbUser) {
-            await this.bot.sendMessage(chatId, 'Session expired. Type /start to continue.');
+            await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
             return;
           }
           userState = {
@@ -918,7 +936,7 @@ Be concise. Be real.`
           logger.warn(`[Callback] struggle_ — userState missing for ${telegramId}, recovering from DB`);
           const dbUser = await userQueries.getUserByTelegramId(telegramId);
           if (!dbUser) {
-            await this.bot.sendMessage(chatId, 'Session expired. Type /start to continue.');
+            await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
             return;
           }
           userState = {
@@ -970,7 +988,8 @@ Be concise. Be real.`
 
         this.userStates.delete(telegramId);
 
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           taskMode === 'ai'
             ? '🤖 *AI Mode activated!* Generating your first set of tasks now...'
@@ -986,7 +1005,8 @@ Be concise. Be real.`
             logger.info(`sendTasksImmediately completed for user ${telegramId}`);
           } catch (err) {
             logger.error(`Failed to send immediate tasks for ${telegramId}:`, err);
-            await this.bot.sendMessage(
+            await telegramClient.sendMessage(
+              this.bot,
               chatId,
               'Had a small hiccup generating tasks. Type /start to get them now.'
             );
@@ -1014,7 +1034,7 @@ Be concise. Be real.`
 
     } catch (error) {
       logger.error(`Onboarding callback error for ${telegramId}:`, error);
-      await this.bot.sendMessage(chatId, 'Something went wrong. Type /start to begin again.');
+      await telegramClient.sendMessage(this.bot, chatId, 'Something went wrong. Type /start to begin again.');
     }
   }
 }

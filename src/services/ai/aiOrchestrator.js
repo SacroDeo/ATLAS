@@ -15,6 +15,15 @@ class AIOrchestrator {
     this.providerOrder = ['groq', 'gemini', 'together'];
   }
 
+  _isRateLimitError(error) {
+    const msg = (error?.message || '').toLowerCase();
+    return error?.status === 429 || error?.statusCode === 429 || msg.includes('rate limit') || msg.includes('429');
+  }
+
+  async _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   _getAvailableProviders() {
     return this.providerOrder.filter(name => {
       const provider = this.providers[name];
@@ -97,6 +106,10 @@ class AIOrchestrator {
    * @returns {Object} - Parsed JSON
    */
   async executeJSON(messages, options = {}, schemaValidator = null) {
+    if (schemaValidator !== null && typeof schemaValidator !== 'function') {
+      logger.warn('[executeJSON] schemaValidator is not a function — ignoring');
+      schemaValidator = null;
+    }
     let providersToTry = this._getAvailableProviders();
 
     if (options.preferredProvider && providersToTry.includes(options.preferredProvider)) {
@@ -152,8 +165,16 @@ class AIOrchestrator {
           }
 
           // Fall back to regular completion + manual parsing
-          raw = await provider.generateCompletion(attemptMessages, options);
-          logger.info(`[executeJSON] Raw response length: ${raw?.length || 0}`);
+// Fall back to regular completion + manual parsing
+          try {
+            raw = await provider.generateCompletion(attemptMessages, options);
+          } catch (completionError) {
+            if (this._isRateLimitError(completionError) && attempt < maxAttempts - 1) {
+              await this._sleep(500 * Math.pow(2, attempt));
+              continue;
+            }
+            throw completionError;
+          }          logger.info(`[executeJSON] Raw response length: ${raw?.length || 0}`);
 
           // Clean the response
           let cleaned = this.cleanAIResponse(raw);
@@ -206,6 +227,10 @@ class AIOrchestrator {
 
         } catch (error) {
           logger.warn(`[executeJSON] Provider ${providerName} attempt ${attempt + 1} failed: ${error.message}`);
+          if (this._isRateLimitError(error) && attempt < maxAttempts - 1) {
+            await this._sleep(500 * Math.pow(2, attempt));
+            continue;
+          }
           if (attempt === maxAttempts - 1) {
             errors.push({ provider: providerName, error: error.message });
           }
@@ -233,15 +258,29 @@ class AIOrchestrator {
     const errors = [];
 
     for (const providerName of providersToTry) {
-      try {
-        logger.info(`Trying AI provider: ${providerName}`);
-        const provider = this.providers[providerName];
-        const result = await provider.generateCompletion(messages, options);
-        logger.info(`AI request succeeded with ${providerName}`);
-        return result;
-      } catch (error) {
-        logger.warn(`Provider ${providerName} failed: ${error.message}`);
-        errors.push({ provider: providerName, error: error.message });
+      const provider = this.providers[providerName];
+      const maxRetries = this._isRateLimitErrorCapable ? 2 : 2;
+
+      for (let retry = 0; retry <= 2; retry++) {
+        try {
+          logger.info(`Trying AI provider: ${providerName} (attempt ${retry + 1})`);
+          const result = await provider.generateCompletion(messages, options);
+          logger.info(`AI request succeeded with ${providerName}`);
+          return result;
+        } catch (error) {
+          const isRateLimit = this._isRateLimitError(error);
+          logger.warn(`Provider ${providerName} attempt ${retry + 1} failed: ${error.message}`);
+
+          if (isRateLimit && retry < 2) {
+            const backoffMs = 500 * Math.pow(2, retry); // 500ms, 1000ms
+            logger.info(`Rate limited on ${providerName}, backing off ${backoffMs}ms`);
+            await this._sleep(backoffMs);
+            continue;
+          }
+
+          errors.push({ provider: providerName, error: error.message });
+          break; // move to next provider
+        }
       }
     }
 

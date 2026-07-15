@@ -16,20 +16,21 @@ const inlineKeyboards = {
     };
   },
 
-  skipReasons(taskId) {
+    skipReasons(taskId) {
+    // 'sr' + 2-char reason codes keep callback_data under Telegram's 64-byte limit
     return {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '⏰ No Time', callback_data: `task:skipreason:${taskId}:no_time` },
-            { text: '📚 Too Difficult', callback_data: `task:skipreason:${taskId}:too_difficult` },
+            { text: '⏰ No Time', callback_data: `task:sr:${taskId}:nt` },
+            { text: '📚 Too Difficult', callback_data: `task:sr:${taskId}:td` },
           ],
           [
-            { text: '❌ Not Relevant', callback_data: `task:skipreason:${taskId}:not_relevant` },
-            { text: '😔 Lost Motivation', callback_data: `task:skipreason:${taskId}:lost_motivation` },
+            { text: '❌ Not Relevant', callback_data: `task:sr:${taskId}:nr` },
+            { text: '😔 Lost Motivation', callback_data: `task:sr:${taskId}:lm` },
           ],
           [
-            { text: '🚨 Personal Emergency', callback_data: `task:skipreason:${taskId}:personal_emergency` },
+            { text: '🚨 Personal Emergency', callback_data: `task:sr:${taskId}:pe` },
           ],
         ],
       },
@@ -80,6 +81,29 @@ const inlineKeyboards = {
             { text: '🗺️ Roadmap', callback_data: 'roadmap:menu' },
             { text: '❓ Help', callback_data: 'menu:help' },
           ],
+        ],
+      },
+    };
+  },
+    pendingDecision() {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '⏭️ Skip them & get fresh tasks', callback_data: 'pending:skipall' }],
+          [{ text: '📌 Keep them — I\'ll finish them myself', callback_data: 'pending:keep' }],
+        ],
+      },
+    };
+  },
+
+  // Shown when the request ADDS tasks (topic-specific) on top of unfinished work,
+  // rather than replacing. Either keep the unfinished ones too, or skip them first.
+  pendingAppendDecision() {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '➕ Keep both & add new', callback_data: 'pending:addkeep' }],
+          [{ text: '⏭️ Skip unfinished, then add', callback_data: 'pending:addskip' }],
         ],
       },
     };

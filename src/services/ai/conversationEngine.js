@@ -93,7 +93,11 @@ class ConversationEngine {
   async generateTasksFromContext(structuredContext, user) {
   try {
     const effectiveTime = structuredContext.effective_time || user.available_time || '2 hours';
-
+    let manualHistoryContext = '';
+    if (user._manual_task_history?.length > 0) {
+      const titles = user._manual_task_history.map(t => `- ${t.title}`).join('\n');
+      manualHistoryContext = `\nPAST TASKS THE USER WROTE THEMSELVES (use this to understand their real working style, topics, and pace — continue logically from here, don't repeat or contradict):\n${titles}\n`;
+    }
     const recentConvo = user._recent_messages
         ? `\nRECENT CONVERSATION (what the user said lately — use this to calibrate tasks):\n${user._recent_messages}\n`
         : '';
@@ -105,6 +109,17 @@ class ConversationEngine {
       const roadmapContext = user.roadmap
         ? `\n- Roadmap phase: ${user._roadmap_phase || 'Month 1'}\n- Full roadmap:\n${user.roadmap}`
         : `\n- Roadmap phase: ${user._roadmap_phase || 'Month 1'}`;
+      const pc = user._phase_constraints;
+      const phaseDirective = pc
+        ? `
+CURRENT PHASE LOCK — HIGHEST PRIORITY, OVERRIDES EVERYTHING:
+- The user is in phase: "${pc.phase_name}"
+- Generate tasks ONLY for this phase. Do NOT jump ahead to later phases.
+- ALLOWED topics for now: ${pc.allowed_topics?.join(', ') || 'this phase only'}
+- BLOCKED topics (later phases — NEVER assign yet): ${pc.blocked_topics?.join(', ') || 'anything beyond this phase'}
+- Even if the goal implies advanced skills, the user must MASTER this phase first
+- Every task must map directly to "${pc.phase_name}"`
+        : '';
 
 const knowledgeLevelDirective = (() => {
   const level = user.domain_knowledge || 'beginner';
@@ -118,13 +133,16 @@ KNOWLEDGE LEVEL: COMPLETE BEGINNER — HIGHEST PRIORITY RULES:
 - Tasks must say WHAT to learn, not WHERE to find it
 - No tool installation, lab setup, or configuration of any kind
 - All tasks difficulty: easy`;
-        if (level === 'basic') return `
-KNOWLEDGE LEVEL: BASIC UNDERSTANDING:
-- User knows core concepts but lacks hands-on experience
-- Identify the most critical foundational gap and address it first
-- Introduce tools with a one-line explanation before assigning tasks that use them
-- One practical exercise per session is acceptable
-- Avoid skipping prerequisite steps`;
+    
+if (level === 'basic') return `
+KNOWLEDGE LEVEL: BASIC UNDERSTANDING — HIGHEST PRIORITY RULES:
+- Before generating anything, work out the prerequisite skill chain for THIS user's exact goal, then start at the earliest missing prerequisite
+- Never jump ahead to advanced sub-topics, tools, software setup, or specialized procedures before the underlying foundation is covered
+- The user knows core concepts but lacks hands-on skill — reinforce fundamentals through small practical exercises first
+- Introduce a tool only AFTER a task has taught the concept behind it
+- Every task must teach or apply one specific, named foundational concept drawn from the user's own goal
+- Task difficulty: easy to medium only`;
+
         if (level === 'intermediate') return `
 KNOWLEDGE LEVEL: INTERMEDIATE:
 - User has real hands-on experience
@@ -149,8 +167,9 @@ USER PROFILE:
 - Biggest struggle: ${user.biggest_struggle || 'staying consistent'}${lifeContext}
 - Focus area: ${structuredContext.focus_area || 'general'}${roadmapContext}
 ${recentConvo}
+${manualHistoryContext}
 ${knowledgeLevelDirective}
-
+${phaseDirective}
 EXISTING TASKS (do not duplicate):
 ${structuredContext.existing_task_titles?.length > 0 ? structuredContext.existing_task_titles.join('\n') : 'None'}
 
@@ -177,7 +196,7 @@ Return ONLY valid JSON array, no extra text:
 
     const messages = [{ role: 'user', content: systemPrompt }];
 
-    const result = await aiOrchestrator.executeJson(
+    const result = await aiOrchestrator.executeJSON(
       messages,
       { temperature: 0.7, maxTokens: 1200 },
       'groq'
@@ -225,7 +244,7 @@ Respond ONLY with JSON:
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(messages, { temperature: 0.1, maxTokens: 100 });
+      const result = await aiOrchestrator.executeJSON(messages, { temperature: 0.1, maxTokens: 100 });
       const needsClarification =
         result.confidence < 0.75 ||
         result.context?.ambiguous === true;
@@ -333,7 +352,7 @@ Respond ONLY with valid JSON:
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(messages, { temperature: 0.3, maxTokens: 2000 });
+      const result = await aiOrchestrator.executeJSON(messages, { temperature: 0.3, maxTokens: 2000 });
       return result;
     } catch (error) {
       logger.error(`Conversation-based task generation failed:`, error);
@@ -353,7 +372,7 @@ Respond ONLY with valid JSON:
         content: m.content,
       }));
 
-     const systemPrompt = `You are ATLAS, a warm and deeply empathetic accountability partner. You genuinely care about the person you're talking to — not just their goals, but how they're actually feeling right now.
+     const systemPrompt = `You are ATLAS, a warm and deeply empathetic personal goal assistant. You genuinely care about the person you're talking to — not just their goals, but how they're actually feeling right now.
 
 User profile:
 - Name: ${user.first_name || 'there'}
@@ -429,7 +448,7 @@ Return ONLY JSON: {"motivation": "why they want this goal in 1-2 sentences"}`
 
       let motivation = `Working toward: ${newGoals[0]}`;
       try {
-        const result = await aiOrchestrator.executeJson(messages, { temperature: 0.5, maxTokens: 100 });
+        const result = await aiOrchestrator.executeJSON(messages, { temperature: 0.5, maxTokens: 100 });
         if (result.motivation) motivation = result.motivation;
       } catch (e) { /* use default */ }
 

@@ -5,7 +5,7 @@ const dailyTaskGenerator = require('../../services/ai/dailyTaskGenerator');
 const personalityService = require('../../services/personality/personalityService');
 const inlineKeyboards = require('../keyboards/inlineKeyboards');
 const logger = require('../../utils/logger');
-const { safeSend, replyWithKeyboard } = require('../../utils/telegram/replyBuilder');
+const telegramClient = require('../../utils/telegram/telegramClient');
 const { formatTask, combineSections } = require('../../utils/telegram/telegramFormatter');
 
 class StartCommand {
@@ -21,7 +21,8 @@ class StartCommand {
       const user = await userQueries.getUserByTelegramId(telegramId);
 
       if (!user) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           'Welcome to ATLAS! Let me set up your profile.\n\nPlease wait a moment...'
         );
@@ -35,10 +36,11 @@ class StartCommand {
       const todayTasks = await taskQueries.getDailyTasks(user.id);
 
       if (todayTasks.length === 0) {
-        await replyWithKeyboard(
-          { reply: (text, opts) => this.bot.sendMessage(chatId, text, opts) },
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
           'You currently have no tasks for today.',
-          inlineKeyboards.mainMenu()
+          { reply_markup: inlineKeyboards.mainMenu().reply_markup }
         );
       } else {
         await this.sendTasks(chatId, todayTasks, user);
@@ -46,7 +48,8 @@ class StartCommand {
       return true;
     } catch (error) {
       logger.error(`Start command error for ${telegramId}:`, error);
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         'Something went wrong. Please try again or contact support.'
       );
@@ -67,8 +70,9 @@ class StartCommand {
       
       const message = `🎉 *All tasks completed for today!*\n\n${completedLine}${skippedLine}${tone.encouragement}\n\nNew tasks arrive tomorrow.`;
       
-      await safeSend(
-        { reply: (text, opts) => this.bot.sendMessage(chatId, text, opts) },
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
         message
       );
       return;
@@ -78,8 +82,9 @@ class StartCommand {
     const completedLine = completedTasks.length > 0 ? ` · ✅ ${completedTasks.length} done` : '';
     const skippedLine = skippedTasks.length > 0 ? ` · ⏭️ ${skippedTasks.length} skipped` : '';
 
-    await safeSend(
-      { reply: (text, opts) => this.bot.sendMessage(chatId, text, opts) },
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
       `🎯 *Today's Tasks — ${pendingTasks.length} pending*${completedLine}${skippedLine}`
     );
 
@@ -89,16 +94,24 @@ class StartCommand {
       const taskMessage = formatTask(task, i + 1);
 
       try {
-        await this.bot.sendMessage(chatId, taskMessage, {
-          parse_mode: 'MarkdownV2',
-          ...inlineKeyboards.taskActions(task.id),
-        });
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          taskMessage,
+          {
+            parse_mode: 'MarkdownV2',
+            ...inlineKeyboards.taskActions(task.id),
+          }
+        );
       } catch (err) {
         // Fallback without markdown if formatting fails
         logger.error(`Failed to send task ${task.id} with markdown:`, err);
-        await this.bot.sendMessage(chatId, `${i + 1}. ${task.title}\n\n${task.description || ''}`, {
-          ...inlineKeyboards.taskActions(task.id),
-        });
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          `${i + 1}. ${task.title}\n\n${task.description || ''}`,
+          inlineKeyboards.taskActions(task.id)
+        );
       }
     }
   }

@@ -3,6 +3,12 @@ require('dotenv').config();
 const config = {
 telegram: {
 token: process.env.TELEGRAM_BOT_TOKEN,
+botUsername: process.env.TELEGRAM_BOT_USERNAME,
+adminId: process.env.ADMIN_TELEGRAM_ID,
+},
+dashboard: {
+jwtSecret: process.env.JWT_SECRET,
+url: process.env.DASHBOARD_URL || 'http://localhost:3000',
 },
 supabase: {
 url: process.env.SUPABASE_URL,
@@ -15,7 +21,8 @@ model: 'llama-3.3-70b-versatile',
 },
 gemini: {
 apiKey: process.env.GEMINI_API_KEY,
-model: 'gemini-1.5-flash',
+model: 'gemini-2.0-flash'
+,
 },
 together: {
 apiKey: process.env.TOGETHER_API_KEY,

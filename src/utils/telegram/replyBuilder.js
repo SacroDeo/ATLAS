@@ -3,7 +3,7 @@
 
 const { sanitizeTelegramText } = require('./safeMarkdown');
 const { prepareMessageChunks } = require('./messageChunks');
-const logger = require('../../logger');
+const logger = require('../logger');
 
 const DEFAULT_OPTIONS = {
   parse_mode: 'MarkdownV2',

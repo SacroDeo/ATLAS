@@ -65,7 +65,7 @@ const messageFormatter = {
 
   formatHelpMessage() {
     return {
-      template: '🤖 *ATLAS - Your Accountability Partner*\n\n*/start* - View today\'s tasks\n*/today* - Check missions\n*/progress* - Daily progress\n*/stats* - Statistics\n*/review* - Weekly review\n*/goal* - Your goal\n*/help* - This message\n*/reset* - Reset profile\n\n*Chat Features:*\n• "add task \\[description\\]" - Add custom task\n• "show tomorrow\'s tasks" - See & edit tomorrow\n• "change task 1 to..." - Modify a task\n• "delete task 2" - Remove a task\n• "start now" - Get tasks immediately\n• "change time" - Update delivery time\n• Just chat - I\'ll respond conversationally\n\nStay consistent. Build momentum. 🚀',
+      template: '🤖 *ATLAS - Your Personal Goal Assistant*\n\n*/start* - View today\'s tasks\n*/today* - Check missions\n*/progress* - Daily progress\n*/stats* - Statistics\n*/review* - Weekly review\n*/goal* - Your goal\n*/help* - This message\n*/reset* - Reset profile\n\n*Chat Features:*\n• "add task \\[description\\]" - Add custom task\n• "show tomorrow\'s tasks" - See & edit tomorrow\n• "change task 1 to..." - Modify a task\n• "delete task 2" - Remove a task\n• "start now" - Get tasks immediately\n• "change time" - Update delivery time\n• Just chat - I\'ll respond conversationally\n\nStay consistent. Build momentum. 🚀',
       values: {},
     };
   },

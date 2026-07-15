@@ -21,7 +21,7 @@ class WeeklyCron {
   start() {
     if (!this.bot) {
       logger.warn('Bot instance not set for weekly cron. Will attempt to find it.');
-      const app = require('../../app');
+      const app = require('../../server');
       this.bot = app.bot;
     }
 
@@ -97,7 +97,8 @@ class WeeklyCron {
         `⚠️ Worst Day: ${review.worst_day}\n\n` +
         `${tone.encouragement}`;
 
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         reviewMessage,
         { parse_mode: 'Markdown' }
@@ -107,7 +108,8 @@ class WeeklyCron {
 
       const nextWeekMessage = this.getNextWeekMessage(review.completion_rate, user.personality_type);
       
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         user.telegram_id,
         nextWeekMessage,
         { parse_mode: 'Markdown' }

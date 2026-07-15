@@ -26,8 +26,10 @@ const KNOWLEDGE_DIRECTIVES = {
 - No advanced tooling or setup in first 40% of roadmap`,
 
   basic: `KNOWLEDGE LEVEL IS BASIC. YOU MUST:
+- Apply this to ANY field or goal — never assume a technical field
 - Start from core concepts with light reinforcement
-- Introduce tools with brief context
+- Phase 1 must reinforce fundamentals through small practical exercises — NO tool installation or environment setup in Phase 1
+- Introduce tools with brief context, only after the concepts they depend on
 - Avoid skipping prerequisite topics
 - Assume basic awareness but not hands-on skill`,
 
@@ -167,7 +169,7 @@ OUTPUT — Respond with ONLY this JSON (no other text):
     try {
       const raw = await aiOrchestrator.execute(
         [{ role: 'system', content: systemContent }],
-        { temperature: 0.3, maxTokens: 600 }
+        { temperature: 0.3, maxTokens: 1500 }
       );
       logger.info(`[RoadmapGenerator] AI response received for user ${telegramId}`);
       result = this._parseAIResponse(raw);
@@ -294,11 +296,7 @@ OUTPUT — Respond with ONLY this JSON (no other text):
         phase_index: i + 1,
         phase_name: phaseName,
         difficulty: phaseDifficulty,
-        allowed_topics: [
-          `${inferredDomain} fundamentals`,
-          `${inferredDomain} practical exercises`,
-          `${inferredDomain} hands-on practice`
-        ],
+        allowed_topics: [], // empty = task AI reasons about real prerequisites instead of a meaningless label
         blocked_topics: behaviorProfile?.blockedTopics || [],
         completion_requirements: requirements,
       });

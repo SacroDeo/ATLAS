@@ -40,7 +40,7 @@ class IntentClassifier {
 
     try {
       const messages = this._buildPrompt(text, userContext);
-      const result = await aiOrchestrator.executeJson(messages, {
+      const result = await aiOrchestrator.executeJSON(messages, {
         temperature: 0.1,
         maxTokens: 150,
       });

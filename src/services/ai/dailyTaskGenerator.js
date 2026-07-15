@@ -32,7 +32,7 @@ class DailyTaskGenerator {
       }
 
       const existingTasks = await taskQueries.getDailyTasks(user.id, date);
-      if (existingTasks.length >= 3) {
+      if (existingTasks.length >= 1) {
         logger.info(`Tasks already exist for user ${telegramId} on ${date}`);
         return existingTasks;
       }
@@ -80,7 +80,7 @@ class DailyTaskGenerator {
         .filter(m => m.role === 'user')
         .slice(-5)
         .map(m => m.content);
-
+      const manualTaskHistory = await taskQueries.getRecentManualTaskTitles(user.id, 30);
       const daysSinceStart = Math.floor(
         (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24)
       );
@@ -105,6 +105,7 @@ class DailyTaskGenerator {
         roadmap: user.roadmap || null,
         _roadmap_phase: roadmapPhase,
         _recent_messages: lastUserMessages.join('\n') || null,
+        _manual_task_history: manualTaskHistory,
         _adaptation: { ...adaptation, directives: allDirectives },
         _phase_constraints: phaseConstraints,
         _behavior_profile: behaviorProfile,
@@ -169,10 +170,16 @@ const isBlocked = blockedLower.some(blocked =>
       }));
 
       logger.info(`Saving ${tasksWithDate.length} tasks for user ${telegramId}`);
-      const savedTasks = await taskQueries.createTasks(user.id, tasksWithDate);
+      const { inserted, tasks: savedTasks } = await taskQueries.createTasksIfNotExists(user.id, date, tasksWithDate);
+if (!inserted) {
+  logger.info(`[DailyTaskGenerator] Tasks already existed for ${telegramId} on ${date} — skipped duplicate insert`);
+  const existingTasks = await taskQueries.getDailyTasks(user.id, date);
+  logger.info(`Generated ${existingTasks.length} tasks for user ${telegramId} on ${date}`);
+  return existingTasks;
+}
 
-      logger.info(`Generated ${savedTasks.length} tasks for user ${telegramId} on ${date}`);
-      return savedTasks;
+logger.info(`Generated ${savedTasks.length} tasks for user ${telegramId} on ${date}`);
+return savedTasks;
     } catch (error) {
       logger.error(`Task generation failed for user ${telegramId} on ${date}:`, error);
       const user = await userQueries.getUserByTelegramId(telegramId);

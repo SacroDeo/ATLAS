@@ -118,7 +118,7 @@ class MemoryService {
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(prompt, { 
+      const result = await aiOrchestrator.executeJSON(prompt, { 
         temperature: 0.5, 
         maxTokens: 300 
       });

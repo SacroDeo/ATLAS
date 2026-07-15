@@ -1,6 +1,8 @@
 // src/core/execution/executors/generateTasksExecutor.js
+// src/core/execution/executors/generateTasksExecutor.js
 const conversationEngine = require('../../../services/ai/conversationEngine');
 const taskQueries = require('../../../database/queries/taskQueries');
+const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
 
 class GenerateTasksExecutor {
@@ -9,7 +11,55 @@ class GenerateTasksExecutor {
     const user = context.user;
 
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const stateManager = require('../../state/stateManager');
+      const inlineKeyboards = require('../../../bot/keyboards/inlineKeyboards');
+      const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
+      const today = userNow.toISOString().split('T')[0];
+
+      // A plain "generate/regenerate" REPLACES today's list; a topic-specific
+      // request ("tasks on X") APPENDS on top. Either way we never touch the
+      // user's unfinished tasks without asking first.
+      const isTopicSpecific = !!(plan.payload?.focus_area);
+
+      // GATE: if unfinished work exists (today's OR from earlier days) and this
+      // isn't an already-confirmed follow-up, stop and ask what to do. The
+      // `_skipPendingGate` flag is set once the user answers the keep/skip prompt.
+      if (!plan._skipPendingGate) {
+        const unfinished = await taskQueries.getActivePendingUpTo(user.id, today);
+        if (unfinished.length > 0) {
+          const list = unfinished
+            .map((t, i) => `${i + 1}. ${t.title}`)
+            .join('\n');
+
+          // Remember the exact request so the button press can regenerate the
+          // same thing (including the requested topic) once the user decides.
+          stateManager.setContext(user.telegram_id, {
+            payload: plan.payload,
+            isTopicSpecific,
+          });
+
+          const header =
+            `⏳ You still have ${unfinished.length} unfinished task${unfinished.length !== 1 ? 's' : ''}:\n\n${list}\n\n`;
+
+          if (isTopicSpecific) {
+            return {
+              success: false,
+              message:
+                header +
+                `I'll add your new tasks. Keep the unfinished ones too, or skip them first?`,
+              reply_markup: inlineKeyboards.pendingAppendDecision().reply_markup,
+              data: { pendingTasks: unfinished },
+            };
+          }
+
+          return {
+            success: false,
+            message: header + `I won't replace them silently. What do you want to do?`,
+            reply_markup: inlineKeyboards.pendingDecision().reply_markup,
+            data: { pendingTasks: unfinished },
+          };
+        }
+      }
 
       const existingTasks = await taskQueries.getDailyTasks(user.id, today);
       const existingTitles = existingTasks.map(t => t.title.toLowerCase().trim());
@@ -52,29 +102,30 @@ class GenerateTasksExecutor {
         };
       }
 
-      // FIX: only wipe existing tasks when it's a plain regenerate
-      // topic-specific requests APPEND instead of replace
-      const isTopicSpecific = !!(structuredContext.focus_area || plan.payload.focus_area);
+      // Reached the replace path only when nothing was pending (the gate above
+      // returned otherwise). Clear any stray pending stragglers WITHOUT touching
+      // completed tasks, so today's earned progress/streak stays intact.
       if (!isTopicSpecific) {
-        await taskQueries.deactivateActiveTasks(user.id);
+        await taskQueries.clearPendingForRegeneration(user.id, today);
       }
 
       const savedTasks = [];
+      const failedTasks = [];
       for (const task of uniqueTasks) {
         try {
           const saved = await taskQueries.createTasks(user.id, [{
             ...task,
             assigned_date: today,
             due_date: today,
-            is_daily: true
+            is_daily: true,
+            is_active: true
           }]);
           if (saved && saved.length > 0) {
             savedTasks.push(saved[0]);
           }
         } catch (taskError) {
-          if (!taskError.message?.includes('duplicate key') && taskError.code !== '23505') {
-            logger.error(`Failed to save task "${task.title}":`, taskError.message);
-          }
+          failedTasks.push(task.title);
+          logger.error(`Failed to save task "${task.title}":`, taskError.message);
         }
       }
 
@@ -90,6 +141,10 @@ class GenerateTasksExecutor {
         .join('\n');
 
       const label = isTopicSpecific ? 'Added' : 'Generated';
+
+      // Remind the user how to act on these tasks — the text list is a review
+      // step; /start turns them into ✅ buttons.
+      const atlasCommands = require('../../../utils/atlasCommands');
 
       return {
         success: true,

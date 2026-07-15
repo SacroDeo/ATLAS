@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>ATLAS · Operator Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #060a13;
+    --glass: rgba(255, 255, 255, 0.045);
+    --glass-strong: rgba(255, 255, 255, 0.07);
+    --edge: rgba(255, 255, 255, 0.09);
+    --edge-bright: rgba(255, 255, 255, 0.16);
+    --text: #eef2fa;
+    --muted: #93a0b8;
+    --teal: #5eead4;
+    --violet: #a78bfa;
+    --amber: #fbbf24;
+    --alert: #fb7185;
+    --r: 20px;
+    --font-body: 'Space Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--ink);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Ops-room backdrop: aurora glows + faint tactical grid, fixed behind glass */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: -2;
+    background:
+      radial-gradient(900px 500px at 85% -5%, rgba(94, 234, 212, 0.13), transparent 60%),
+      radial-gradient(800px 600px at -10% 40%, rgba(167, 139, 250, 0.12), transparent 55%),
+      radial-gradient(700px 500px at 60% 110%, rgba(94, 234, 212, 0.07), transparent 60%);
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: -1;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 30%, transparent 75%);
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(16px, 4vw, 36px) clamp(14px, 4vw, 24px) 72px; }
+
+  /* ---------- Glass panel primitive ---------- */
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 20px 50px -20px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ---------- Header / status line ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: clamp(20px, 4vw, 32px); flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .logo {
+    width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(94,234,212,0.9), rgba(167,139,250,0.9));
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 19px; color: #071018;
+    box-shadow: 0 6px 24px -6px rgba(94, 234, 212, 0.45);
+  }
+  .statusline {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .statusline b { color: var(--teal); font-weight: 500; }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .logout {
+    font-family: var(--font-mono); font-size: 12px;
+    background: var(--glass); border: 1px solid var(--edge); color: var(--muted);
+    padding: 9px 16px; border-radius: 12px; cursor: pointer; transition: .18s;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .logout:hover, .logout:focus-visible { color: var(--text); border-color: var(--teal); }
+
+  /* ---------- Login gate ---------- */
+  .gate { display: grid; place-items: center; min-height: 78vh; text-align: center; }
+  .gate-card { padding: clamp(32px, 6vw, 52px) clamp(24px, 5vw, 44px); max-width: 420px; width: 100%; }
+  .gate-card .logo { width: 58px; height: 58px; margin: 0 auto 22px; font-size: 26px; border-radius: 17px; }
+  .gate-card h2 { font-size: clamp(20px, 5vw, 24px); margin-bottom: 10px; letter-spacing: -0.02em; }
+  .gate-card p { color: var(--muted); font-size: 14px; margin-bottom: 28px; line-height: 1.55; }
+  .gate-widget { display: flex; justify-content: center; min-height: 46px; }
+  .err { color: var(--alert); font-size: 13px; margin-top: 16px; min-height: 18px; font-family: var(--font-mono); }
+
+  /* ---------- Greeting ---------- */
+  .greeting { margin-bottom: clamp(18px, 3.5vw, 26px); }
+  .greeting h2 { font-size: clamp(22px, 5.5vw, 30px); font-weight: 700; letter-spacing: -0.03em; }
+  .greeting .goal { color: var(--muted); font-size: clamp(13px, 3.5vw, 14px); margin-top: 8px; line-height: 1.5; }
+  .greeting .goal b { color: var(--teal); font-weight: 600; }
+
+  /* ---------- Stat tiles ---------- */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: clamp(10px, 2vw, 16px); margin-bottom: clamp(14px, 2.5vw, 20px);
+  }
+  .stat { padding: clamp(14px, 3vw, 20px); position: relative; overflow: hidden; }
+  .stat::after {
+    content: ''; position: absolute; top: 0; left: 18px; right: 18px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--edge-bright), transparent);
+  }
+  .stat .label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.14em;
+  }
+  .stat .value {
+    font-size: clamp(26px, 6vw, 34px); font-weight: 700;
+    margin-top: 10px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  .stat .sub { font-size: 11.5px; color: var(--muted); margin-top: 5px; font-family: var(--font-mono); }
+  .stat.streak .value { color: var(--amber); text-shadow: 0 0 24px rgba(251, 191, 36, 0.35); }
+  .stat.rate .value { color: var(--teal); text-shadow: 0 0 24px rgba(94, 234, 212, 0.3); }
+
+  /* ---------- Panels ---------- */
+  .panel { padding: clamp(18px, 4vw, 26px); margin-bottom: clamp(14px, 2.5vw, 20px); }
+  .panel h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .panel .hint {
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    margin: 5px 0 20px; letter-spacing: 0.04em;
+  }
+  canvas { width: 100%; height: 200px; display: block; }
+
+  /* ---------- Signature: segmented phase track ---------- */
+  .phase-track { display: flex; gap: 6px; margin-bottom: 20px; }
+  .phase-seg {
+    flex: 1; height: 26px; border-radius: 8px; position: relative;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--edge);
+    overflow: hidden;
+  }
+  .phase-seg .fill {
+    position: absolute; inset: 0; width: 0%;
+    background: linear-gradient(90deg, rgba(94,234,212,0.85), rgba(167,139,250,0.85));
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .phase-seg.completed .fill { width: 100%; }
+  .phase-seg.current {
+    /* Active phase: highlighted border + pulse. No fill — the system tracks
+       phase-level progress only, so drawing a partial fill would be invented data. */
+    border-color: rgba(94, 234, 212, 0.5);
+    box-shadow: 0 0 14px -2px rgba(94, 234, 212, 0.35), inset 0 0 10px rgba(94, 234, 212, 0.08);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .phase-seg .tag {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--muted); text-transform: uppercase; z-index: 1;
+  }
+  .phase-seg.completed .tag, .phase-seg.current .tag { color: #071018; font-weight: 600; }
+  .phase-seg.current .tag { color: var(--teal); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  /* ---------- Rows (tasks & phases) ---------- */
+  .task { display: flex; align-items: flex-start; gap: 14px; padding: 13px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .task:last-child { border-bottom: none; padding-bottom: 2px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: var(--muted); }
+  .dot.completed { background: var(--teal); box-shadow: 0 0 10px rgba(94, 234, 212, 0.55); }
+  .dot.pending { background: var(--amber); box-shadow: 0 0 10px rgba(251, 191, 36, 0.4); }
+  .dot.skipped, .dot.too_hard { background: var(--alert); }
+  .task-body { flex: 1; min-width: 0; }
+  .task-title { font-size: 14px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+  .task-title.done { text-decoration: line-through; color: var(--muted); }
+  .task-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; overflow-wrap: anywhere; }
+  .badge {
+    display: inline-block; font-family: var(--font-mono); font-size: 10px;
+    padding: 2px 8px; border-radius: 6px; vertical-align: 1px;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--edge);
+    color: var(--muted); margin-left: 8px; letter-spacing: 0.06em;
+  }
+  .empty { color: var(--muted); font-size: 13.5px; text-align: center; padding: 26px 12px; line-height: 1.6; }
+
+  /* ---------- Dev login ---------- */
+  .dev-box { width: 100%; text-align: left; }
+  .dev-note { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-bottom: 12px; text-align: center; letter-spacing: 0.08em; }
+  .dev-box input {
+    width: 100%; padding: 13px 14px; border-radius: 12px;
+    border: 1px solid var(--edge); background: rgba(0,0,0,0.35);
+    color: var(--text); margin-bottom: 12px; font-size: 14px; font-family: var(--font-mono);
+  }
+  .dev-box input:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+  .dev-box button {
+    width: 100%; padding: 13px; border-radius: 12px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, var(--teal), var(--violet));
+    color: #071018; font-weight: 700; font-size: 14px; font-family: var(--font-body);
+  }
+
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 4px; }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    header { margin-bottom: 18px; }
+    .statusline { display: none; }
+    canvas { height: 170px; }
+    .phase-seg { height: 30px; }
+  }
+  @media (max-width: 380px) {
+    .phase-seg .tag { font-size: 9px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- LOGIN GATE -->
+  <div id="gate" class="gate" style="display:none">
+    <div class="gate-card glass">
+      <div class="logo">A</div>
+      <h2>Welcome to ATLAS</h2>
+      <p>Sign in with the same Telegram account you use with the bot to see your progress.</p>
+      <div id="tg-widget" class="gate-widget"></div>
+      <div id="gate-err" class="err"></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="app" style="display:none">
+    <header>
+      <div class="brand">
+        <div class="logo">A</div>
+        <div>
+          <h1>ATLAS</h1>
+          <div class="statusline">operator console // <b id="status-live">live</b></div>
+        </div>
+      </div>
+      <button class="logout" onclick="logout()">sign out</button>
+    </header>
+
+    <div class="greeting">
+      <h2 id="greet">Welcome back</h2>
+      <div class="goal" id="goal"></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat glass streak">
+        <div class="label">Streak</div>
+        <div class="value" id="s-streak">–</div>
+        <div class="sub" id="s-streak-sub">days in a row</div>
+      </div>
+      <div class="stat glass">
+        <div class="label">Best streak</div>
+        <div class="value" id="s-longest">–</div>
+        <div class="sub">personal record</div>
+      </div>
+      <div class="stat glass rate">
+        <div class="label">Roadmap</div>
+        <div class="value" id="s-rate">–</div>
+        <div class="sub" id="s-rate-sub">of your roadmap</div>
+      </div>
+      <div class="stat glass">
+        <div class="label">Tasks done</div>
+        <div class="value" id="s-done">–</div>
+        <div class="sub" id="s-done-sub">last 30 days</div>
+      </div>
+    </div>
+
+    <div class="panel glass" id="roadmap-panel" style="display:none">
+      <h3>Roadmap</h3>
+      <div class="hint" id="roadmap-hint"></div>
+      <div class="phase-track" id="phase-track"></div>
+      <div id="roadmap-phases"></div>
+    </div>
+
+    <div class="panel glass">
+      <h3>Progress over time</h3>
+      <div class="hint">completed vs. assigned per day — last 14 days</div>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="panel glass">
+      <h3>Today's tasks</h3>
+      <div class="hint" id="today-hint">loading…</div>
+      <div id="today-list"></div>
+    </div>
+
+    <div class="panel glass">
+      <h3>Tomorrow's tasks</h3>
+      <div class="hint" id="tomorrow-hint">loading…</div>
+      <div id="tomorrow-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/dashboard';
+
+async function api(path) {
+  const r = await fetch(API + path, { credentials: 'same-origin' });
+  if (r.status === 401) throw { unauth: true };
+  if (!r.ok) throw new Error('Request failed: ' + path);
+  return r.json();
+}
+
+// --- Boot: check session, else show login gate ---
+async function boot() {
+  try {
+    const me = await api('/me');
+    showDashboard(me);
+  } catch (e) {
+    if (e.unauth) return showGate();
+    console.error(e);
+    showGate();
+  }
+}
+
+async function showGate() {
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('gate').style.display = 'grid';
+
+  if (new URLSearchParams(location.search).get('error') === 'auth') {
+    document.getElementById('gate-err').textContent =
+      'Sign-in failed or expired. Please try again.';
+  }
+
+  try {
+    const cfg = await api('/config');
+    const mount = document.getElementById('tg-widget');
+    const isLocalhost = ['localhost', '127.0.0.1', ''].includes(location.hostname);
+
+    // Dev login ONLY on localhost (Telegram's widget can't run there).
+    // On any public host show the real Telegram widget.
+    if (cfg.devLogin && isLocalhost) {
+      mount.innerHTML =
+        '<div class="dev-box">' +
+        '<div class="dev-note">// local dev mode</div>' +
+        '<input id="dev-tid" placeholder="Your Telegram ID" inputmode="numeric" />' +
+        '<button onclick="devLogin()">Enter dashboard</button></div>';
+    } else {
+      const s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://telegram.org/js/telegram-widget.js?22';
+      s.setAttribute('data-telegram-login', cfg.botUsername);
+      s.setAttribute('data-size', 'large');
+      s.setAttribute('data-radius', '10');
+      s.setAttribute('data-auth-url', API + '/auth/telegram');
+      s.setAttribute('data-request-access', 'write');
+      mount.appendChild(s);
+    }
+  } catch (e) {
+    document.getElementById('gate-err').textContent = 'Could not load login. Refresh to retry.';
+  }
+}
+
+function devLogin() {
+  const tid = document.getElementById('dev-tid').value.trim();
+  if (!tid) { document.getElementById('gate-err').textContent = 'Enter your Telegram ID.'; return; }
+  location.href = API + '/dev-login?tid=' + encodeURIComponent(tid);
+}
+
+function showDashboard(me) {
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  document.getElementById('greet').textContent =
+    'Welcome back' + (me.firstName ? ', ' + me.firstName : '') + ' 👋';
+  if (me.goal) {
+    document.getElementById('goal').innerHTML = 'Working toward: <b>' + escapeHtml(me.goal) + '</b>';
+  }
+  document.getElementById('s-streak').textContent = me.currentStreak;
+  document.getElementById('s-streak-sub').textContent =
+    me.currentStreak === 1 ? 'day in a row' : 'days in a row';
+  document.getElementById('s-longest').textContent = me.longestStreak;
+
+  loadStats();
+  loadRoadmap();
+  loadProgress();
+  loadToday();
+  loadTomorrow();
+}
+
+async function loadStats() {
+  const s = await api('/stats?days=30');
+  document.getElementById('s-done').textContent = s.completed;
+  document.getElementById('s-done-sub').textContent =
+    s.total + ' tasks · ' + Math.round(s.completion_rate) + '% done (30d)';
+}
+
+async function loadRoadmap() {
+  const r = await api('/roadmap');
+  const tile = document.getElementById('s-rate');
+  if (!r.hasRoadmap) {
+    tile.textContent = '–';
+    document.getElementById('s-rate-sub').textContent = 'no roadmap yet';
+    return;
+  }
+  tile.textContent = r.percentCovered + '%';
+  document.getElementById('s-rate-sub').textContent =
+    'phase ' + r.currentPhaseIndex + ' of ' + r.totalPhases;
+
+  const panel = document.getElementById('roadmap-panel');
+  panel.style.display = 'block';
+  document.getElementById('roadmap-hint').textContent =
+    r.percentCovered + '% covered — phase ' + r.currentPhaseIndex + ' of ' + r.totalPhases + ' in progress';
+
+  // Signature: segmented phase track — one glass segment per phase.
+  document.getElementById('phase-track').innerHTML = r.phases.map(p => `
+    <div class="phase-seg ${p.state}">
+      <div class="fill"></div>
+      <div class="tag">P${p.index}</div>
+    </div>`).join('');
+
+  const stateIcon = { completed: '✅', current: '🔵', upcoming: '⚪' };
+  document.getElementById('roadmap-phases').innerHTML = r.phases.map(p => `
+    <div class="task">
+      <div style="flex-shrink:0;font-size:13px;margin-top:2px">${stateIcon[p.state]}</div>
+      <div class="task-body">
+        <div class="task-title ${p.state === 'completed' ? 'done' : ''}">
+          Phase ${p.index}: ${escapeHtml(p.name)}
+          <span class="badge">${escapeHtml(p.difficulty || '')}</span>
+          ${p.state === 'current' ? '<span class="badge" style="color:var(--teal);border-color:rgba(94,234,212,0.4)">in progress</span>' : ''}
+        </div>
+        ${p.state === 'current' && p.requirements.length
+          ? '<div class="task-meta">to finish: ' + p.requirements.map(escapeHtml).join(' · ') + '</div>'
+          : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function loadProgress() {
+  const { series } = await api('/progress?days=14');
+  drawChart(series);
+}
+
+async function loadToday() {
+  const { tasks } = await api('/tasks/today');
+  const list = document.getElementById('today-list');
+  const hint = document.getElementById('today-hint');
+  if (!tasks.length) {
+    hint.textContent = 'nothing scheduled yet';
+    list.innerHTML = '<div class="empty">No tasks for today. Check your Telegram bot 📲</div>';
+    return;
+  }
+  const done = tasks.filter(t => t.status === 'completed').length;
+  hint.textContent = done + ' of ' + tasks.length + ' completed';
+  list.innerHTML = tasks.map(t => `
+    <div class="task">
+      <div class="dot ${t.status}"></div>
+      <div class="task-body">
+        <div class="task-title ${t.status === 'completed' ? 'done' : ''}">${escapeHtml(t.title)}
+          ${t.difficulty ? '<span class="badge">' + escapeHtml(t.difficulty) + '</span>' : ''}</div>
+        ${t.estimatedTime ? '<div class="task-meta">⏱ ' + escapeHtml(String(t.estimatedTime)) + ' min</div>' : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function loadTomorrow() {
+  const { tasks } = await api('/tasks/tomorrow');
+  const list = document.getElementById('tomorrow-list');
+  const hint = document.getElementById('tomorrow-hint');
+  if (!tasks.length) {
+    hint.textContent = 'not generated yet';
+    list.innerHTML = '<div class="empty">Tomorrow\'s tasks are generated by ATLAS each morning based on your roadmap phase 🌅</div>';
+    return;
+  }
+  hint.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' planned';
+  list.innerHTML = tasks.map(t => `
+    <div class="task">
+      <div class="dot pending"></div>
+      <div class="task-body">
+        <div class="task-title">${escapeHtml(t.title)}
+          ${t.difficulty ? '<span class="badge">' + escapeHtml(t.difficulty) + '</span>' : ''}</div>
+        ${t.estimatedTime ? '<div class="task-meta">⏱ ' + escapeHtml(String(t.estimatedTime)) + ' min</div>' : ''}
+      </div>
+    </div>`).join('');
+}
+
+// --- Minimal dependency-free bar chart, styled to the glass console ---
+function drawChart(series) {
+  const canvas = document.getElementById('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight || 200;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { l: 26, r: 6, t: 10, b: 22 };
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+  const maxT = Math.max(1, ...series.map(d => d.total));
+  const barW = cw / series.length;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.fillStyle = '#93a0b8';
+  ctx.font = '10px "IBM Plex Mono", monospace';
+  for (let i = 0; i <= 2; i++) {
+    const y = pad.t + (ch * i / 2);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillText(Math.round(maxT * (1 - i / 2)), 2, y + 3);
+  }
+
+  series.forEach((d, i) => {
+    const x = pad.l + i * barW + barW * 0.22;
+    const w = barW * 0.56;
+    const th = (d.total / maxT) * ch;
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    roundRect(ctx, x, pad.t + ch - th, w, th, 3);
+    const dh = (d.completed / maxT) * ch;
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
+    grad.addColorStop(0, '#5eead4'); grad.addColorStop(1, '#a78bfa');
+    ctx.fillStyle = grad;
+    if (dh > 0) roundRect(ctx, x, pad.t + ch - dh, w, dh, 3);
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(147,160,184,0.75)';
+      ctx.fillText(d.date.slice(5), x - 4, H - 6);
+    }
+  });
+}
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath(); ctx.fill();
+}
+
+async function logout() {
+  await fetch(API + '/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  location.href = '/dashboard.html';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Redraw chart on orientation / resize (mobile)
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (document.getElementById('app').style.display !== 'none') loadProgress();
+  }, 200);
+});
+
+boot();
+</script>
+</body>
+</html>

@@ -49,7 +49,7 @@ Respond with JSON:
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(messages, { temperature: 0.8 });
+      const result = await aiOrchestrator.executeJSON(messages, { temperature: 0.8 });
 
       return result.question;
       
@@ -177,7 +177,7 @@ Respond ONLY with JSON:
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(messages);
+      const result = await aiOrchestrator.executeJSON(messages);
       return result.question;
     } catch (error) {
       logger.error('Failed to generate follow-up question:', error);

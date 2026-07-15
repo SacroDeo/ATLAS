@@ -38,7 +38,8 @@ const telegramErrorHandler = (bot, chatId, error) => {
   const errorResponse = handleError(error, 'Telegram Handler');
   
   if (errorResponse.shouldNotify && chatId) {
-    bot.sendMessage(
+    telegramClient.sendMessage(
+  bot,
       chatId,
       `⚠️ ${errorResponse.message}`
     ).catch(err => logger.error('Failed to send error message:', err));

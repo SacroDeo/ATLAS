@@ -3,7 +3,7 @@
 
 const { sanitizeTelegramText } = require('./safeMarkdown');
 const { safeSend } = require('./replyBuilder');
-const logger = require('../../logger');
+const logger = require('../logger');
 
 const EDIT_RETRY_COUNT = 2;
 const EDIT_RETRY_DELAY = 500;

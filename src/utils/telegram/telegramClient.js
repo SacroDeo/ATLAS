@@ -91,16 +91,23 @@ async function sendMessage(bot, chatId, text, extraOptions = {}) {
 
   for (let i = 0; i < chunks.length; i++) {
     const isLast = i === chunks.length - 1;
-    const options = { parse_mode: 'MarkdownV2', ...extraOptions };
+    const options = {
+  ...(extraOptions || {})
+};
 
     // Keyboard only on last chunk
     if (!isLast) delete options.reply_markup;
 
     // Chunk label for multi-part messages
     const chunkText = chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n${chunks[i]}` : chunks[i];
-
+    logger.info({
+  sendMessage_chatId_type: typeof chatId,
+  sendMessage_text_type: typeof chunkText,
+  sendMessage_options_type: typeof options,
+});
     lastResult = await executeTelegramOperation(
-      () => bot.sendMessage(chatId, chunkText, options),
+      () => bot.sendMessage(
+      chatId, chunkText, options),
       { allowMarkdownFallback: true, mutableOptions: options }
     );
   }
@@ -126,7 +133,11 @@ async function editMessage(bot, chatId, messageId, text, extraOptions = {}) {
     ? cleaned.slice(0, MAX_MESSAGE_LENGTH - 3) + '...'
     : cleaned;
 
-  const options = { chat_id: chatId, message_id: messageId, parse_mode: 'MarkdownV2', ...extraOptions };
+  const options = {
+  chat_id: chatId,
+  message_id: messageId,
+  ...(extraOptions || {})
+};
 
   return executeTelegramOperation(
     () => bot.editMessageText(truncated, options),
@@ -176,11 +187,22 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+
+async function editMessageReplyMarkup(bot, chatId, messageId, replyMarkup) {
+  return executeTelegramOperation(
+    () => bot.editMessageReplyMarkup(replyMarkup, {
+      chat_id: chatId,
+      message_id: messageId,
+    }),
+    { allowMarkdownFallback: false }
+  );
+}
+
 module.exports = {
   sendMessage,
   editMessage,
+  editMessageReplyMarkup,
   answerCallbackQuery,
   deleteMessage,
-  // Exposed for callers that need raw retry wrapping (e.g. ctx-based Telegraf ops)
   executeTelegramOperation,
 };

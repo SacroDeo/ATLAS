@@ -15,6 +15,7 @@ module.exports = {
         return ctx.handleSkipRequest(callbackQuery, id);
 
       case 'skipreason':
+      case 'sr':
         return ctx.handleSkipReason(callbackQuery, id, extra);
 
       case 'toohard':

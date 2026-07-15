@@ -1,6 +1,7 @@
 // src/core/execution/executors/addTaskExecutor.js
 const taskQueries = require('../../../database/queries/taskQueries');
 const aiOrchestrator = require('../../../services/ai/aiOrchestrator');
+const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
 
 // Detects if input contains a numbered list and splits it into individual items
@@ -26,8 +27,8 @@ function extractNumberedList(text) {
 async function execute(plan, context) {
   try {
     const { user } = context;
-    const today = new Date().toISOString().split('T')[0];
-
+    const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
+const today = userNow.toISOString().split('T')[0];
     const rawDescription = plan.payload?.description || context.messageText || '';
 
     if (!rawDescription.trim()) {
@@ -50,6 +51,7 @@ async function execute(plan, context) {
       assigned_date: today,
       due_date: today,
       is_daily: true,
+      is_socratic: false,
       is_socratic: false,
     }));
 

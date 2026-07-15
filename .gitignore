@@ -32,3 +32,8 @@ Thumbs.db
 
 # Misc
 FULL_GENERATED_CODE_DUMP.txt
+# Deployment notes (private)
+DEPLOY.md
+
+# Local tooling
+.tools/

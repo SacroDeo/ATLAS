@@ -19,6 +19,7 @@ const taskQueries = {
       difficulty_level: task.difficulty_level || 'medium',
       is_daily: task.is_daily !== undefined ? task.is_daily : true,
       is_socratic: task.is_socratic || false,
+      source: task.source || 'ai', // 'manual' | 'ai' — needed to recall what user wrote vs what AI generated
     }));
 
     const { data, error } = await supabase
@@ -113,7 +114,8 @@ const taskQueries = {
   }
 },
 
-async deactivateActiveTasks(userId) {
+async deactivateActiveTasks(userId, date = null) {
+  const targetDate = date || new Date().toISOString().split('T')[0];
 
   const { error } = await supabase
     .from('tasks')
@@ -121,6 +123,7 @@ async deactivateActiveTasks(userId) {
       is_active: false
     })
     .eq('user_id', userId)
+    .eq('assigned_date', targetDate)
     .eq('is_active', true);
 
   if (error) throw error;
@@ -173,6 +176,7 @@ async deactivateActiveTasks(userId) {
       .from('tasks')
       .select('status, assigned_date')
       .eq('user_id', userId)
+      .eq('is_active', true)
       .gte('assigned_date', startDate)
       .lte('assigned_date', endDate);
 
@@ -210,6 +214,69 @@ async deactivateActiveTasks(userId) {
 
   return count || 0;
 },
+
+
+    async getPendingTasksBefore(userId, beforeDate) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .lt('assigned_date', beforeDate)
+      .order('assigned_date', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  // All still-pending, still-active tasks up to AND including `date` —
+  // i.e. today's unfinished tasks plus any leftover from earlier days.
+  // Used to decide whether to interrupt task generation with a keep/skip prompt.
+  async getActivePendingUpTo(userId, date) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .lte('assigned_date', date)
+      .order('assigned_date', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  // Deactivate every still-pending task up to and including `date`.
+  // Deactivated tasks fall out of every is_active=true query (today's list,
+  // progress, streak), so they stay NEUTRAL — they neither count as completed
+  // nor break the streak. This is the "skip old tasks & get new ones" path.
+  async clearPendingForRegeneration(userId, date) {
+    const { error } = await supabase
+      .from('tasks')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .lte('assigned_date', date);
+
+    if (error) throw error;
+    return true;
+  },
+
+
+   async skipPendingTasksBefore(userId, beforeDate) {
+    const { error } = await supabase
+      .from('tasks')
+      .update({ status: 'skipped', updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .lte('assigned_date', beforeDate); // lte = includes today's pending too
+    if (error) throw error;
+    return true;
+  },
+
 
   async deleteUserTasks(userId) {
     const { error } = await supabase
@@ -252,6 +319,7 @@ async deactivateActiveTasks(userId) {
       .from('tasks')
       .select('id, status, assigned_date, completed_at, due_date')
       .eq('user_id', userId)
+      .eq('is_active', true)
       .gte('assigned_date', startDate)
       .lte('assigned_date', endDate)
       .order('assigned_date', { ascending: true });
@@ -259,6 +327,61 @@ async deactivateActiveTasks(userId) {
     if (error) throw error;
     return data || [];
   },
+  async getRecentManualTaskTitles(userId, limit = 30) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('title, assigned_date')
+      .eq('user_id', userId)
+      .eq('source', 'manual')
+      .order('assigned_date', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return (data || []).reverse(); // chronological, oldest first
+  },
+ async createTasksIfNotExists(userId, date, tasks) {
+  const { error: lockError } = await supabase
+    .from('task_generation_locks')
+    .insert({ user_id: userId, assigned_date: date });
+
+  if (lockError) {
+    if (lockError.code === '23505') {
+      // Lock exists — check if tasks actually exist
+      const existing = await this.getDailyTasks(userId, date);
+      if (existing.length > 0) {
+        logger.info(`[createTasksIfNotExists] Lock held and tasks exist for ${userId} on ${date}`);
+        return { inserted: false, tasks: existing };
+      }
+      // Stale lock — delete it and retry
+      logger.warn(`[createTasksIfNotExists] Stale lock detected for ${userId} on ${date} — clearing and retrying`);
+      await supabase
+        .from('task_generation_locks')
+        .delete()
+        .eq('user_id', userId)
+        .eq('assigned_date', date);
+
+      const { error: retryLockError } = await supabase
+        .from('task_generation_locks')
+        .insert({ user_id: userId, assigned_date: date });
+
+      if (retryLockError) throw retryLockError;
+    } else {
+      throw lockError;
+    }
+  }
+
+  try {
+    const inserted = await this.createTasks(userId, tasks);
+    return { inserted: true, tasks: inserted };
+  } catch (insertError) {
+    await supabase
+      .from('task_generation_locks')
+      .delete()
+      .eq('user_id', userId)
+      .eq('assigned_date', date);
+    throw insertError;
+  }
+},
 };
     
 

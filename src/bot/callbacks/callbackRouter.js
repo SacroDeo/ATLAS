@@ -42,7 +42,11 @@ class CallbackRouter {
       return answerCallback(ctx, 'Unknown action.', { showAlert: false });
     }
 
-    const [domain, action, id, extra] = data.split(':');
+    const parts = data.split(':');
+const domain = parts[0];
+const action = parts[1];
+const id = parts[2];
+const extra = parts.slice(3).join(':');
 
     logger.info(`[callbackRouter] domain=${domain}, action=${action}, id=${id}, extra=${extra}`);
 

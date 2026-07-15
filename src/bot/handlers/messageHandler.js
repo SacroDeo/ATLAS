@@ -1,4 +1,5 @@
 // src/bot/handlers/messageHandler.js
+// src/bot/handlers/messageHandler.js
 const memoryService = require('../../services/memory/memoryService');
 const contextBuilder = require('../../core/context/contextBuilder');
 const stateManager = require('../../core/state/stateManager');
@@ -28,6 +29,8 @@ const logger = require('../../utils/logger');
 const { telegramErrorHandler } = require('../../utils/errorHandler');
 const { dailyCron } = require('../../cron/dailyCron');
 const generalChatExecutor = require('../../core/execution/executors/generalChatExecutor');
+const telegramClient = require('../../utils/telegram/telegramClient');
+const atlasCommands = require('../../utils/atlasCommands');
 
 class MessageHandler {
   constructor(bot) {
@@ -90,7 +93,7 @@ class MessageHandler {
         }
         if (lower === 'no' || lower === 'cancel') {
           stateManager.clear(user.telegram_id);
-          await this.bot.sendMessage(chatId, 'Okay, cancelled.');
+          await telegramClient.sendMessage(this.bot, chatId, 'Okay, cancelled.');
           return;
         }
       }
@@ -106,14 +109,14 @@ class MessageHandler {
           try {
             const task = await taskQueries.getTaskById(taskId);
             await taskQueries.deleteTask(taskId);
-            await this.bot.sendMessage(chatId, `✅ Task "${task.title}" has been deleted.`);
+            await telegramClient.sendMessage(this.bot, chatId, `✅ Task "${task.title}" has been deleted.`);
           } catch (error) {
             logger.error('Delete confirmation failed:', error);
-            await this.bot.sendMessage(chatId, '❌ Failed to delete. Try again.');
+            await telegramClient.sendMessage(this.bot, chatId, '❌ Failed to delete. Try again.');
           }
         } else {
           stateManager.clear(user.telegram_id);
-          await this.bot.sendMessage(chatId, '❌ Deletion cancelled. Your task is safe.');
+          await telegramClient.sendMessage(this.bot, chatId, '❌ Deletion cancelled. Your task is safe.');
         }
         return;
       }
@@ -128,7 +131,8 @@ class MessageHandler {
           await socraticQueries.clearAwaitingResponse(user.id);
         } else {
           if (text.startsWith('/start') || text.startsWith('/today')) {
-            await this.bot.sendMessage(
+            await telegramClient.sendMessage(
+              this.bot,
               chatId,
               '🤔 *Hold on!*\n\nYou have an unanswered understanding check. Please answer the question below before continuing:\n\n' +
               `"${latestLog.question}"\n\nJust reply with your answer directly.`,
@@ -144,14 +148,16 @@ class MessageHandler {
       // ── PRIORITY 5: Rate limiting ─────────────────────────────────────────
       const rateCheck = rateLimiter.checkMessage(user.telegram_id);
       if (!rateCheck.allowed) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           `⏳ You're sending messages too fast. Please wait ${rateLimiter.formatRetryTime(rateCheck.retryAfterSeconds)} before trying again.`
         );
         return;
       }
       if (rateCheck.warn) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           `⚠️ You're approaching the message limit (${rateLimiter.LIMITS.MESSAGES_PER_MINUTE}/min). Slow down a bit to avoid being temporarily blocked.`
         );
@@ -210,7 +216,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
           .single();
 
         if (data && !error) {
-          await this.bot.sendMessage(
+          await telegramClient.sendMessage(
+            this.bot,
             chatId,
             `Got it — I'll keep that in mind as we tackle today together. 💪`
           );
@@ -223,7 +230,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
 
       // ── PRIORITY 7: Task mode not set yet ─────────────────────────────────
       if (!freshUser.task_mode) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           "*How do you want to handle your daily tasks?*\n\n" +
           "1️⃣ *AI generates them* — I build tasks daily based on your roadmap\n" +
@@ -252,7 +260,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
 
       // Roadmap intent — checked BEFORE generic 'show' catch
       if (lower.includes('roadmap') || lower.includes('my plan') || lower.includes('show plan')) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '🗺️ *Your Roadmap*\n\nWhat would you like to see?',
           { parse_mode: 'Markdown', ...inlineKeyboards.roadmapMenu() }
@@ -267,7 +276,7 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
           { intent: 'SHOW_SOMETHING', ambiguous: true },
           freshUser
         );
-        await this.bot.sendMessage(chatId, clarification, { parse_mode: 'Markdown' });
+        await telegramClient.sendMessage(this.bot, chatId, clarification, { parse_mode: 'Markdown' });
         return;
       }
 
@@ -278,6 +287,14 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
         lower.startsWith('update') || lower.startsWith('change')
       ) {
         await this.handleConversationalMessage(chatId, text, freshUser);
+        return;
+      }
+
+      // ── PRIORITY 9.5: Natural-language help ────────────────────────────────
+      // So a user who never learned /help can still reach the command list by
+      // just typing "help", "commands", "what can you do", etc.
+      if (atlasCommands.isHelpRequest(text)) {
+        await this.showHelp(chatId);
         return;
       }
 
@@ -321,7 +338,10 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
               stateManager.set(user.telegram_id, 'adding_task');
             }
           }
-          await this.bot.sendMessage(chatId, result.message, { parse_mode: 'Markdown' });
+          await telegramClient.sendMessage(this.bot, chatId, result.message, {
+            parse_mode: 'Markdown',
+            ...(result.reply_markup ? { reply_markup: result.reply_markup } : {}),
+          });
           if (result.success && result.message) {
             await conversationEngine.appendHistory(user.id, 'assistant', result.message);
           }
@@ -332,14 +352,14 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
         { intent: ACTIONS.GENERAL_CHAT, payload: {} },
         context
       );
-      await this.bot.sendMessage(chatId, fallbackResult.message, inlineKeyboards.mainMenu());
+      await telegramClient.sendMessage(this.bot, chatId, fallbackResult.message, inlineKeyboards.mainMenu());
     } catch (error) {
       logger.error(`Conversational response failed for user ${user.telegram_id}:`, error);
-      await this.bot.sendMessage(chatId, '😅 Something went wrong. Try again!', inlineKeyboards.mainMenu());
+      await telegramClient.sendMessage(this.bot, chatId, '😅 Something went wrong. Try again!', inlineKeyboards.mainMenu());
     }
   }
 
-  // ─── CORRECTED: Manual Task Entry Handler ────────────────────────────────
+  // ─── CORRECTED: Manual Task Entry Handler ──────────��─────────────────────
 
   async handleManualTaskEntry(chatId, text, user) {
     try {
@@ -359,7 +379,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
         await userQueries.updateOnboardingState(user.telegram_id, 'completed', {
           input_mode: 'chat'
         });
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '✅ Exited task entry mode. What would you like to do?',
           inlineKeyboards.mainMenu()
@@ -379,7 +400,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
         // Route commands through system while staying in manual mode
         await this.handleCommand(chatId, user.telegram_id, text, user);
         // Remind user they're still in task entry mode
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '💡 *Still in task entry mode.* Send more tasks or type "done" when you\'re finished.',
           { parse_mode: 'Markdown' }
@@ -390,7 +412,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
       if (systemActions[normalized]) {
         await systemActions[normalized]();
         // Remind user they're still in task entry mode
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '💡 *Still in task entry mode.* Send more tasks or type "done" when you\'re finished.',
           { parse_mode: 'Markdown' }
@@ -402,7 +425,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
       const taskTitles = this._parseManualTasks(text);
 
       if (taskTitles.length === 0) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           "I couldn't find any tasks in your message. Try sending them like this:\n\n" +
           "1. First task\n2. Second task\n\n" +
@@ -424,13 +448,14 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
         confirmText += `${i + 1}\\. ${telegramMessage.escape(task.title)}\n`;
       });
 
-      await this.bot.sendMessage(chatId, confirmText, {
+      await telegramClient.sendMessage(this.bot, chatId, confirmText, {
         parse_mode: 'MarkdownV2',
         ...inlineKeyboards.mainMenu()
       });
 
       // Stay in manual mode for more tasks
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         '💡 *Still in task entry mode.* Send more tasks or type "done" when you\'re finished.',
         { parse_mode: 'Markdown' }
@@ -438,7 +463,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
 
     } catch (error) {
       logger.error(`[ManualTaskEntry] Failed for user ${user.telegram_id}:`, error);
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         '😅 Had trouble saving those tasks. Try again or type "done" to exit.',
         inlineKeyboards.mainMenu()
@@ -567,7 +593,8 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
       await this.handleAddTaskDescription(chatId, description, user);
     } else {
       stateManager.set(user.telegram_id, 'adding_task');
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         'Sure! What task would you like to add to today\'s schedule? Just describe it and I\'ll set it up. 📝'
       );
@@ -579,7 +606,7 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
       const messages = [
         {
           role: 'system',
-          content: `You are ATLAS, a supportive accountability partner for ${user.first_name || 'the user'}.
+          content: `You are ATLAS, a supportive personal goal assistant for ${user.first_name || 'the user'}.
 Their goal: ${user.goal}
 Their biggest struggle: ${user.biggest_struggle}
 Current streak: ${user.current_streak} days
@@ -604,7 +631,7 @@ Give a helpful, specific 2-3 sentence piece of advice based on their message. Be
       const messages = [
         {
           role: 'system',
-          content: `You are ATLAS, a thoughtful accountability partner chatting with ${user.first_name || 'the user'}.
+          content: `You are ATLAS, a thoughtful personal goal assistant chatting with ${user.first_name || 'the user'}.
 Their goal: ${user.goal}
 Personality: ${user.personality_type || 'friendly'}
 Current streak: ${user.current_streak} days
@@ -648,7 +675,8 @@ Be warm and motivating. Reference their goal: ${user.goal}`
     const currentDisplay = timezoneUtils.getTimezoneDisplayName
       ? `${currentTime} (${timezoneUtils.getTimezoneDisplayName(user.timezone || 'UTC')})`
       : currentTime;
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       `⏰ Your tasks currently arrive at *${currentDisplay}*\n\nSelect a new time:`,
       {
@@ -680,7 +708,8 @@ Be warm and motivating. Reference their goal: ${user.goal}`
     const currentTz = timezoneUtils.getTimezoneDisplayName
       ? timezoneUtils.getTimezoneDisplayName(user.timezone || 'UTC')
       : (user.timezone || 'UTC');
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       `🌍 Your current timezone is *${currentTz}*\n\nReply with your city or timezone (e.g., "New York", "London", "IST", "UTC+5:30") to change it.`,
       { parse_mode: 'Markdown' }
@@ -693,28 +722,31 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
       const userToday = userNow.toISOString().split('T')[0];
       if (user.last_tasks_sent_date === userToday) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '✅ You already have your tasks for today! Check above or use /today to see them.',
           inlineKeyboards.mainMenu()
         );
         return;
       }
-      await this.bot.sendMessage(chatId, '🚀 Generating your tasks right now...');
+      await telegramClient.sendMessage(this.bot, chatId, '🚀 Generating your tasks right now...');
       await dailyCron.sendTasksImmediately(user.telegram_id);
       if (user.start_preference === 'manual') {
         await userQueries.updateOnboardingState(user.telegram_id, 'completed', {
           start_preference: 'today',
         });
       }
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         '✨ Your tasks are ready! Check above to start working on them.',
         inlineKeyboards.mainMenu()
       );
     } catch (error) {
       logger.error(`Start now failed for ${user.telegram_id}:`, error);
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         '😅 Had trouble generating tasks immediately. Try again or wait for your scheduled time.',
         inlineKeyboards.mainMenu()
@@ -733,7 +765,8 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       const today = new Date().toISOString().split('T')[0];
       const tasks = await taskQueries.getDailyTasks(user.id, today);
       if (!tasks || tasks.length === 0) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           'No tasks for today yet. Use /start to generate them or wait for your scheduled delivery time.',
           inlineKeyboards.mainMenu()
@@ -743,7 +776,8 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       const pending = tasks.filter(t => t.status === 'pending');
       const completed = tasks.filter(t => t.status === 'completed');
       const skipped = tasks.filter(t => t.status === 'skipped');
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         `📋 *Today's Tasks*\n\n✅ Completed: ${completed.length} | ⏭️ Skipped: ${skipped.length} | ⏳ Pending: ${pending.length}`,
         { parse_mode: 'Markdown' }
@@ -759,7 +793,8 @@ Be warm and motivating. Reference their goal: ${user.goal}`
         await new Promise(resolve => setTimeout(resolve, 300));
       }
       if (pending.length === 0) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '🎉 All tasks done for today! New tasks arrive tomorrow at your scheduled time.',
           inlineKeyboards.mainMenu()
@@ -776,7 +811,7 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       const messages = [
         {
           role: 'system',
-          content: `You are ATLAS, a friendly accountability partner helping ${user.first_name || 'the user'} achieve: ${user.goal}. Personality type: ${user.personality_type || 'friendly'}. Current streak: ${user.current_streak || 0} days. Biggest struggle: ${user.biggest_struggle || 'staying consistent'}. Reply warmly and specifically to what they said in 2-3 sentences. Never sound robotic.`
+          content: `You are ATLAS, a friendly personal goal assistant helping ${user.first_name || 'the user'} achieve: ${user.goal}. Personality type: ${user.personality_type || 'friendly'}. Current streak: ${user.current_streak || 0} days. Biggest struggle: ${user.biggest_struggle || 'staying consistent'}. Reply warmly and specifically to what they said in 2-3 sentences. Never sound robotic.`
         },
         { role: 'user', content: text }
       ];
@@ -818,7 +853,7 @@ Return ONLY valid JSON:
         },
         { role: 'user', content: text }
       ];
-      const taskData = await aiOrchestrator.executeJson(messages, { temperature: 0.7, maxTokens: 300 });
+      const taskData = await aiOrchestrator.executeJSON(messages, { temperature: 0.7, maxTokens: 300 });
       taskData.title = taskData.title?.trim() || text.trim().slice(0, 80);
       const normalizeDifficulty = (level) => {
         if (!level) return 'medium';
@@ -909,7 +944,8 @@ Return ONLY valid JSON:
   async handleCommand(chatId, telegramId, command, user) {
     const commandsRequiringTaskMode = ['/today', '/progress', '/stats', '/review'];
     if (!user.task_mode && commandsRequiringTaskMode.includes(command)) {
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         "*How do you want to handle your daily tasks?*\n\n" +
         "1️⃣ *AI generates them* — I build tasks daily based on your roadmap\n" +
@@ -938,7 +974,7 @@ Return ONLY valid JSON:
         break;
       case '/memory':
         await memoryService.updateMemory(user.id);
-        await this.bot.sendMessage(chatId, '✅ Memory updated.');
+        await telegramClient.sendMessage(this.bot, chatId, '✅ Memory updated.');
         break;
       case '/stats':
         await this.showStats(chatId, user);
@@ -946,8 +982,12 @@ Return ONLY valid JSON:
       case '/review':
         await this.showReview(chatId, user);
         break;
+      case '/goal':
+        await this.showGoal(chatId, user);
+        break;
       case '/roadmap':
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           '🗺️ *Your Roadmap*\n\nWhat would you like to see?',
           { parse_mode: 'Markdown', ...inlineKeyboards.roadmapMenu() }
@@ -956,18 +996,38 @@ Return ONLY valid JSON:
       case '/help':
         await this.showHelp(chatId);
         break;
+      case '/dashboard': {
+        const config = require('../../config');
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          '📊 *Your ATLAS Dashboard*\n\n' +
+          'See your streak, completion rate, and progress charts on the web.\n\n' +
+          'Sign in with this same Telegram account when it asks.',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📊 Open Dashboard', url: `${config.dashboard.url}/dashboard.html` }],
+              ],
+            },
+          }
+        );
+        break;
+      }
       case '/reset':
         await this.handleReset(chatId, user);
         break;
       default:
-        await this.bot.sendMessage(chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
     }
   }
 
   async showTodayTasks(chatId, user) {
     const tasks = await taskQueries.getDailyTasks(user.id);
     if (tasks.length === 0) return;
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       `You have ${tasks.filter(t => t.status === 'pending').length} pending tasks today.\n\nUse /start to view and complete them.`
     );
@@ -994,11 +1054,11 @@ Return ONLY valid JSON:
   async showReview(chatId, user) {
     const review = await reviewService.getLatestReview(user.id);
     if (!review) {
-      await this.bot.sendMessage(chatId, 'No weekly review yet. Complete your first week! 📊');
+      await telegramClient.sendMessage(this.bot, chatId, 'No weekly review yet. Complete your first week! 📊');
       return;
     }
     const formattedReview = await reviewService.formatReviewMessage(review);
-    await this.bot.sendMessage(chatId, formattedReview, { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(this.bot, chatId, formattedReview, { parse_mode: 'Markdown' });
   }
 
   async showGoal(chatId, user) {
@@ -1008,7 +1068,7 @@ Return ONLY valid JSON:
     ].filter(Boolean);
     const goals = [...new Set(allGoals.map(g => g.trim()))];
     if (goals.length === 0) {
-      await this.bot.sendMessage(chatId, 'No goals set yet.');
+      await telegramClient.sendMessage(this.bot, chatId, 'No goals set yet.');
       return;
     }
     let text = '🎯 Your Goals:\n\n';
@@ -1019,28 +1079,26 @@ Return ONLY valid JSON:
   }
 
   async showHelp(chatId) {
-    await telegramMessage.sendMarkdownV2(
+    // Command list comes from the shared source of truth (atlasCommands) so it
+    // stays identical to the morning/after-generation footer. Sent as plain
+    // Markdown to avoid hand-escaping every command line for MarkdownV2.
+    await telegramClient.sendMessage(
       this.bot,
       chatId,
-      '🤖 *ATLAS \\- Your Accountability Partner*\n\n' +
-      '*/start* \\- View today\'s tasks\n' +
-      '*/today* \\- Check missions\n' +
-      '*/progress* \\- Daily progress\n' +
-      '*/stats* \\- Statistics\n' +
-      '*/review* \\- Weekly review\n' +
-      '*/goal* \\- Your goal\n' +
-      '*/help* \\- This message\n' +
-      '*/reset* \\- Reset profile\n\n' +
-      '*Chat Features:*\n' +
-      '• "add task \\[description\\]" \\- Add custom task\n' +
-      '• "show tomorrow\'s tasks" \\- See & edit tomorrow\n' +
-      '• "change task 1 to\\..." \\- Modify a task\n' +
-      '• "delete task 2" \\- Remove a task\n' +
-      '• "start now" \\- Get tasks immediately\n' +
-      '• "change time" \\- Update delivery time\n' +
-      '• Just chat \\- I\'ll respond conversationally\n\n' +
-      'Stay consistent\\. Build momentum\\. 🚀',
-      inlineKeyboards.mainMenu()
+      '🤖 *ATLAS — Your Personal Goal Assistant*\n\n' +
+      '*Commands*\n' +
+      atlasCommands.commandsListBold() + '\n\n' +
+      '*Chat features* (just type it):\n' +
+      '• "add task [description]" — Add a custom task\n' +
+      '• "generate tasks on [topic]" — New tasks on a topic\n' +
+      '• "change task 1 to ..." — Modify a task\n' +
+      '• "delete task 2" — Remove a task\n' +
+      '• "start now" — Get tasks immediately\n' +
+      '• "change time" — Update delivery time\n' +
+      '• Just chat — I\'ll respond conversationally\n\n' +
+      '💡 Tap /start to turn today\'s tasks into ✅ buttons.\n\n' +
+      'Stay consistent. Build momentum. 🚀',
+      { parse_mode: 'Markdown', ...inlineKeyboards.mainMenu() }
     );
   }
 
@@ -1101,7 +1159,8 @@ Return ONLY valid JSON:
   }
 
   async handleReset(chatId, user) {
-    await this.bot.sendMessage(
+    await telegramClient.sendMessage(
+      this.bot,
       chatId,
       '⚠️ Reset Profile\n\nThis will reset your onboarding. Are you sure?',
       {

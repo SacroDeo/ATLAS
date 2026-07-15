@@ -1,4 +1,5 @@
 const taskQueries = require('../../../database/queries/taskQueries');
+const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
 
 async function execute(plan, context) {
@@ -10,8 +11,9 @@ async function execute(plan, context) {
       return { success: false, message: '❌ Please specify which task number and the new title.' };
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const tasks = await taskQueries.getDailyTasks(user.id, today);
+    const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
+const today = userNow.toISOString().split('T')[0];    const tasks = await taskQueries.getDailyTasks(user.id, today);
+    // ...rest unchanged
 
     if (!tasks || tasks.length === 0) {
       return { success: false, message: '📋 No tasks found for today.' };

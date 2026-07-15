@@ -19,6 +19,7 @@ const logger = require('../../utils/logger');
 const { telegramErrorHandler } = require('../../utils/errorHandler');
 const { dailyCron } = require('../../cron/dailyCron');
 const { isLowInformationAnswer } = require('../../utils/validators');
+const telegramClient = require('../../utils/telegram/telegramClient');
 
 class CallbackHandler {
   constructor(bot) {
@@ -85,16 +86,125 @@ async _getCallbackContext(callbackQuery) {
 
 
 async handleCallback(callbackQuery) {
+
+  const data = callbackQuery.data || '';
+
   try {
-    await callbackRouter.route(callbackQuery, this);
+
+    // ALWAYS answer callback immediately
+    await telegramClient.answerCallbackQuery(
+      this.bot,
+      callbackQuery.id
+    );
+
+    // =====================================================
+    // GLOBAL NON-ROUTER CALLBACKS
+    // =====================================================
+
+    if (data === 'reset_confirm') {
+
+      const {
+        chatId,
+        messageId,
+        user,
+      } = await this._getCallbackContext(
+        callbackQuery
+      );
+
+      return this.handleResetConfirm(
+        chatId,
+        messageId,
+        user
+      );
+    }
+
+     if (data === 'pending:skipall' || data === 'pending:keep') {
+      const { chatId, messageId, user } = await this._getCallbackContext(callbackQuery);
+      return this.handlePendingDecision(chatId, messageId, user, data);
+    }
+
+     if (data === 'pending:addkeep' || data === 'pending:addskip') {
+      const { chatId, messageId, user } = await this._getCallbackContext(callbackQuery);
+      return this.handleAppendDecision(chatId, messageId, user, data);
+    }
+
+    if (data === 'reset_cancel') {
+
+      const {
+        chatId,
+        messageId,
+      } = await this._getCallbackContext(
+        callbackQuery
+      );
+
+      return this.handleResetCancel(
+        chatId,
+        messageId
+      );
+    }
+
+    // =====================================================
+    // ROUTER CALLBACKS
+    // =====================================================
+    // =====================================================
+// ONBOARDING CALLBACKS
+// =====================================================
+// =====================================================
+// CHANGE TIME CALLBACKS (post-onboarding settings)
+// =====================================================
+if (data.startsWith('changetime_')) {
+  const time = data.replace('changetime_', '');
+  return this.handleChangeTimeConfirm(callbackQuery, time);
+}
+
+
+const onboardingPrefixes = [
+  'onboarding_',
+  'knowledge_',
+  'struggle_',
+  'time_',
+  'tz_',
+  'startdate_',
+  'taskmode_',
+  'finalmode_',
+  'roadmap_weekly_',
+];
+
+const isOnboardingCallback =
+  onboardingPrefixes.some(prefix =>
+    data.startsWith(prefix)
+  );
+
+if (
+  isOnboardingCallback &&
+  this.onboardingFlow
+) {
+  return this.onboardingFlow.handleCallback(
+    callbackQuery
+  );
+}
+
+    await callbackRouter.route(
+      callbackQuery,
+      this
+    );
+
   } catch (error) {
-    logger.error('Callback error:', error);
+
+    logger.error(
+      'Callback error:',
+      error
+    );
 
     try {
-      await this.bot.answerCallbackQuery(callbackQuery.id, {
-        text: 'Something went wrong.',
-        show_alert: false,
-      });
+
+      await telegramClient.answerCallbackQuery(
+        this.bot,
+        callbackQuery.id,
+        'Something went wrong.',
+        false
+      );
+
     } catch (_) {}
   }
 }
@@ -122,12 +232,11 @@ async handleChangeTimeConfirm(
       );
     }
 
-    await this.bot.editMessageText(
-      '✏️ Please reply with your preferred time.',
-      {
-        chat_id: chatId,
-        message_id: messageId,
-      }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      '✏️ Please reply with your preferred time.'
     );
 
     return;
@@ -146,13 +255,12 @@ async handleChangeTimeConfirm(
     const safeTime =
       telegramUtils.escapeMarkdown(time);
 
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       `✅ Time updated to *${safeTime}*`,
-      {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: 'MarkdownV2',
-      }
+      { parse_mode: 'MarkdownV2' }
     );
 
   } catch (error) {
@@ -162,12 +270,11 @@ async handleChangeTimeConfirm(
       error
     );
 
-    await this.bot.editMessageText(
-      '❌ Failed to update time.',
-      {
-        chat_id: chatId,
-        message_id: messageId,
-      }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      '❌ Failed to update time.'
     );
   }
 }
@@ -193,7 +300,7 @@ async handleChangeTimeConfirm(
 
   // FIX 5: answerCallbackQuery at START, callbackQuery passed as param
   async handleTasksNow(chatId, messageId, user, callbackQuery) {
-    await this.bot.answerCallbackQuery(callbackQuery.id);
+    await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
 
     try {
       const userTimezone = user.timezone || 'UTC';
@@ -201,16 +308,22 @@ async handleChangeTimeConfirm(
       const userToday = userNow.toISOString().split('T')[0];
 
       if (user.last_tasks_sent_date === userToday) {
-        await this.bot.editMessageText(
+        await telegramClient.editMessage(
+          this.bot,
+          chatId,
+          messageId,
           '✅ You already have your tasks for today\\!',
-          { chat_id: chatId, message_id: messageId, parse_mode: 'MarkdownV2' }
+          { parse_mode: 'MarkdownV2' }
         );
         return;
       }
 
-      await this.bot.editMessageText(
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
         '🚀 Generating your tasks right now\\.\\.\\.',
-        { chat_id: chatId, message_id: messageId, parse_mode: 'MarkdownV2' }
+        { parse_mode: 'MarkdownV2' }
       );
 
       await dailyCron.sendTasksImmediately(user.telegram_id);
@@ -221,23 +334,31 @@ async handleChangeTimeConfirm(
         });
       }
 
-      await this.bot.editMessageText(
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
         '✨ Your tasks are ready\\! Check above to start working on them\\.',
-        { chat_id: chatId, message_id: messageId, parse_mode: 'MarkdownV2' }
+        { parse_mode: 'MarkdownV2' }
       );
     } catch (error) {
       logger.error(`Tasks now failed for ${user.telegram_id}:`, error);
-      await this.bot.editMessageText(
-        '❌ Failed to generate tasks. Please try again.',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '❌ Failed to generate tasks. Please try again.'
       );
     }
   }
 
   async handleTasksScheduled(chatId, messageId) {
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       '✅ Tasks will arrive at your scheduled time\\.', 
-      { chat_id: chatId, message_id: messageId, parse_mode: 'MarkdownV2' }
+      { parse_mode: 'MarkdownV2' }
     );
   }
 
@@ -260,20 +381,21 @@ async handleDeleteConfirm(
 
   await taskQueries.deleteTask(taskId);
 
-  await this.bot.editMessageText(
-    `✅ Task "${task.title}" removed.`,
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    `✅ Task "${task.title}" removed.`
   );
 }
 
 
   async handleDeleteCancel(chatId, messageId) {
-    await this.bot.editMessageText(
-      'Deletion cancelled.',
-      { chat_id: chatId, message_id: messageId }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      'Deletion cancelled.'
     );
   }
 
@@ -282,7 +404,7 @@ async handleDone(callbackQuery, taskId) {
   const { chatId, messageId, user } =
     await this._getCallbackContext(callbackQuery);
 
-  await this.bot.answerCallbackQuery(callbackQuery.id);
+  await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
 
   if (!taskId) {
     throw new Error('Missing task ID');
@@ -299,7 +421,8 @@ async handleDone(callbackQuery, taskId) {
     const tenMinutes = 10 * 60 * 1000;
 
     if (logAge < tenMinutes) {
-      await this.bot.sendMessage(
+      await telegramClient.sendMessage(
+        this.bot,
         chatId,
         `🤔 *Answer first!*\n\n"${log.question}"`,
         { parse_mode: 'Markdown' }
@@ -318,35 +441,18 @@ async handleDone(callbackQuery, taskId) {
     return;
   }
 
-  await this.bot.editMessageReplyMarkup(
+  await telegramClient.editMessageReplyMarkup(
+    this.bot,
+    chatId,
+    messageId,
     {
       inline_keyboard: [
-        [
-          {
-            text: '✅ Completed',
-            callback_data: 'task:completed',
-          },
-        ],
+        [{ text: '✅ Completed', callback_data: 'task:completed' }],
       ],
-    },
-    {
-      chat_id: chatId,
-      message_id: messageId,
     }
   );
 
-  const today = new Date()
-    .toISOString()
-    .split('T')[0];
-
-  const remaining =
-    await taskQueries.countIncompleteTasks(user.id, today);
-
-  const allDone = remaining === 0;
-
-  if (allDone) {
-    await userQueries.updateStreak(user.id, true);
-  }
+  
 
   const updatedUser =
     await userQueries.getUserByTelegramId(user.telegram_id);
@@ -356,7 +462,8 @@ async handleDone(callbackQuery, taskId) {
       updatedUser.personality_type
     );
 
-  await this.bot.sendMessage(
+  await telegramClient.sendMessage(
+    this.bot,
     chatId,
     tone.completion.positive
   );
@@ -382,7 +489,8 @@ async handleDone(callbackQuery, taskId) {
       if (!acquired) return;
 
       if (step === 0 && !user.biggest_struggle) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           "👋 Quick question while you're on a roll —\n\n" +
           "*What's your biggest challenge when it comes to staying consistent?*\n\n" +
@@ -395,7 +503,8 @@ async handleDone(callbackQuery, taskId) {
       }
 
       if (step === 1 && !user.domain_knowledge) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           "🎯 One more quick thing —\n\n" +
           "*What's your current experience level in the area your goal is in?*\n\n" +
@@ -408,7 +517,8 @@ async handleDone(callbackQuery, taskId) {
       }
 
       if (step === 2 && !user.motivation) {
-        await this.bot.sendMessage(
+        await telegramClient.sendMessage(
+          this.bot,
           chatId,
           "🌟 You've been showing up consistently — respect.\n\n" +
           "*What's the deeper reason behind your goal?*\n\n" +
@@ -433,7 +543,7 @@ async handleDone(callbackQuery, taskId) {
     try {
       if (step === 1 && !user.biggest_struggle) {
         if (isLowInformationAnswer(text)) {
-          await this.bot.sendMessage(chatId, 'Could you elaborate a little more on your struggle?');
+          await telegramClient.sendMessage(this.bot, chatId, 'Could you elaborate a little more on your struggle?');
           return true;
         }
 
@@ -445,13 +555,13 @@ async handleDone(callbackQuery, taskId) {
           'biggest_struggle',
           text.trim()
         );
-        await this.bot.sendMessage(chatId, reply);
+        await telegramClient.sendMessage(this.bot, chatId, reply);
         return true;
       }
 
       if (step === 2 && !user.domain_knowledge) {
         if (isLowInformationAnswer(text)) {
-          await this.bot.sendMessage(chatId, 'A couple of sentences would help — just your background and experience level.');
+          await telegramClient.sendMessage(this.bot, chatId, 'A couple of sentences would help — just your background and experience level.');
           return true;
         }
 
@@ -463,13 +573,13 @@ async handleDone(callbackQuery, taskId) {
           'domain_knowledge',
           text.trim()
         );
-        await this.bot.sendMessage(chatId, reply);
+        await telegramClient.sendMessage(this.bot, chatId, reply);
         return true;
       }
 
       if (step === 3 && !user.motivation) {
         if (isLowInformationAnswer(text)) {
-          await this.bot.sendMessage(chatId, 'Take a moment to think about it. Write a bit more.');
+          await telegramClient.sendMessage(this.bot, chatId, 'Take a moment to think about it. Write a bit more.');
           return true;
         }
 
@@ -481,7 +591,7 @@ async handleDone(callbackQuery, taskId) {
           'motivation',
           text.trim()
         );
-        await this.bot.sendMessage(chatId, reply);
+        await telegramClient.sendMessage(this.bot, chatId, reply);
         return true;
       }
 
@@ -530,13 +640,14 @@ async handleSkipRequest(callbackQuery, taskId) {
   const { chatId, messageId } =
     await this._getCallbackContext(callbackQuery);
 
-  await this.bot.editMessageText(
+  const keyboard = inlineKeyboards.skipReasons(taskId);
+
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
     'Why are you skipping this task?',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-      ...inlineKeyboards.skipReasons(taskId),
-    }
+    { reply_markup: keyboard.reply_markup }
   );
 }
 
@@ -545,33 +656,38 @@ async handleSkipReason(callbackQuery, taskId, reason) {
   const { chatId, messageId, user } =
     await this._getCallbackContext(callbackQuery);
 
-  await this.bot.answerCallbackQuery(callbackQuery.id);
+  // Decode short reason codes (long forms still accepted for old messages)
+  const reasonMap = {
+    nt: 'no_time',
+    td: 'too_difficult',
+    nr: 'not_relevant',
+    lm: 'lost_motivation',
+    pe: 'personal_emergency',
+  };
+  reason = reasonMap[reason] || reason;
 
-  await taskService.handleTaskSkip(
-    user.id,
-    taskId,
-    reason
-  );
+  await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
+
+  await taskService.handleTaskSkip(user.id, taskId, reason);
 
   const messages = {
     no_time:
-      '⏰ Noted. Time constraints detected.',
+      "⏰ No worries — some days are just packed. I'll factor this in for tomorrow.",
     too_difficult:
-      '📚 Difficulty adjustment noted.',
+      "📚 Got it. I'll dial down the difficulty on upcoming tasks.",
     not_relevant:
-      '🎯 Relevance feedback recorded.',
+      "❌ Noted — I'll adjust your upcoming tasks to stay closer to your goal.",
     lost_motivation:
-      '⚡ Motivation drop recorded.',
+      "😔 That's okay. Showing up at all matters. Tomorrow is a fresh start.",
     personal_emergency:
-      '🚨 Emergency acknowledged.',
+      '🚨 Take care of what matters. Your tasks will be here when you\'re ready.',
   };
 
-  await this.bot.editMessageText(
-    messages[reason] || 'Task skipped.',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    messages[reason] || 'Task skipped. Noted for tomorrow.'
   );
 }
 
@@ -580,7 +696,7 @@ async handleTooHard(callbackQuery, taskId) {
   const { chatId, messageId, user } =
     await this._getCallbackContext(callbackQuery);
 
-  await this.bot.answerCallbackQuery(callbackQuery.id);
+  await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
 
   const result =
     await taskService.handleTaskTooHard(
@@ -594,11 +710,12 @@ async handleTooHard(callbackQuery, taskId) {
       true
     );
 
-  await this.bot.editMessageText(
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
     `${message}\n\n*Simplified Task:*\n${result.simplified.title}`,
     {
-      chat_id: chatId,
-      message_id: messageId,
       parse_mode: 'Markdown',
       ...inlineKeyboards.taskActions(
         result.simplified.id
@@ -618,16 +735,16 @@ async handleSocraticPrompt(
       callbackQuery
     );
 
-  await this.bot.answerCallbackQuery(
+  await telegramClient.answerCallbackQuery(
+    this.bot,
     callbackQuery.id
   );
 
-  await this.bot.editMessageText(
-    'Please type your answer below.',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    'Please type your answer below.'
   );
 }
 
@@ -641,12 +758,11 @@ async handleSkipSocratic(
       callbackQuery
     );
 
-  await this.bot.editMessageText(
-    'No problem. Moving on.',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    'No problem. Moving on.'
   );
 }
 
@@ -656,15 +772,16 @@ async handleSkipSocratic(
     
     const progressBar = this.generateProgressBar(progress.percentage);
     
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       `📊 *Today's Progress*\n\n` +
       `${progressBar} ${progress.percentage}%\n\n` +
       `✅ Completed: ${progress.completed}/${progress.total}\n` +
       `⏰ Remaining: ${progress.remaining}\n` +
       `🔥 Streak: ${user.current_streak} days`,
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
       }
@@ -672,7 +789,10 @@ async handleSkipSocratic(
   }
 
   async showStats(chatId, messageId, user) {
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       `📈 *Your Stats*\n\n` +
       `🎯 Goal: ${user.goal}\n` +
       `📅 Deadline: ${user.deadline}\n` +
@@ -682,8 +802,6 @@ async handleSkipSocratic(
       `🗓 Active Since: ${dateUtils.formatDate(user.created_at)}\n` +
       `🧠 Personality: ${user.personality_type}`,
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
       }
@@ -691,7 +809,10 @@ async handleSkipSocratic(
   }
 
   async showGoal(chatId, messageId, user) {
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       `🎯 *Your Goal*\n\n` +
       `*What:* ${user.goal}\n` +
       `*By when:* ${user.deadline}\n` +
@@ -699,8 +820,6 @@ async handleSkipSocratic(
       `*Why it matters:*\n${user.motivation}\n\n` +
       `*Current challenge:*\n${user.biggest_struggle}`,
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
       }
@@ -708,7 +827,10 @@ async handleSkipSocratic(
   }
 
   async showHelp(chatId, messageId) {
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       '🤖 *ATLAS Commands*\n\n' +
       '/start - View today\'s tasks\n' +
       '/today - Check today\'s missions\n' +
@@ -724,8 +846,6 @@ async handleSkipSocratic(
       '• Weekly reviews on Sundays\n' +
       '• Adaptive based on your patterns',
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
       }
@@ -736,24 +856,24 @@ async handleSkipSocratic(
     const review = await reviewService.getLatestReview(user.id);
     
     if (!review) {
-      await this.bot.editMessageText(
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
         'No weekly review available yet. Complete a full week of tasks first!',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          ...inlineKeyboards.mainMenu(),
-        }
+        inlineKeyboards.mainMenu()
       );
       return;
     }
 
     const formattedReview = await reviewService.formatReviewMessage(review);
     
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       formattedReview,
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
       }
@@ -780,12 +900,11 @@ async handleStuckResponse(
       isTechnical
     );
 
-  await this.bot.editMessageText(
-    `${message}\n\nI've noted this and will adapt future tasks.`,
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    `${message}\n\nI've noted this and will adapt future tasks.`
   );
 
   await checkinQueries.createCheckin(
@@ -801,9 +920,11 @@ async handleStuckResponse(
   
   async handleResetConfirm(chatId, messageId, user) {
     try {
-      await this.bot.editMessageText(
-        '⏳ Resetting your ATLAS profile...',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '⏳ Resetting your ATLAS profile...'
       );
       await taskQueries.deleteUserTasks(user.id);
       await checkinQueries.deleteUserCheckins(user.id);
@@ -811,24 +932,133 @@ async handleStuckResponse(
       await reviewQueries.deleteUserReviews(user.id);
       await memoryQueries.deleteUserMemory(user.id);
       await userQueries.resetUser(user.id);
-      await this.bot.editMessageText(
-        '✅ Profile reset! Type /start to begin again.',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '✅ Profile reset! Type /start to begin again.'
       );
       logger.info(`User ${user.telegram_id} reset successfully`);
     } catch (error) {
       logger.error(`Reset failed for ${user.telegram_id}:`, error);
-      await this.bot.editMessageText(
-        '❌ Reset failed. Try again.',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '❌ Reset failed. Try again.'
       );
     }
   }
 
+   async handlePendingDecision(chatId, messageId, user, data) {
+    const stateManager = require('../../core/state/stateManager');
+    // Read the stored request BEFORE clearing so we preserve any details
+    // (e.g. a time constraint) the user attached to the original ask.
+    const pending = stateManager.getContext(user.telegram_id);
+    const userTz = user.timezone || 'UTC';
+    const today = timezoneUtils.getCurrentTimeInZone(userTz).toISOString().split('T')[0];
+
+    if (data !== 'pending:skipall') {
+      // pending:keep — leave everything as-is, user finishes them first.
+      stateManager.clearContext(user.telegram_id);
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        "📌 Got it — finish your previous tasks first. Mark them ✅ Done, then ask me for new tasks."
+      );
+      return;
+    }
+
+    // Skip: deactivate the old tasks (neutral to streak) and regenerate through
+    // the SAME executor used for on-demand generation. Using it instead of
+    // dailyCron.sendTasksImmediately avoids the morning-delivery ceremony —
+    // the "Good Morning" banner and re-listing the very tasks we just skipped.
+    await taskQueries.clearPendingForRegeneration(user.id, today);
+    stateManager.clearContext(user.telegram_id);
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      '⏭️ Old tasks skipped. Generating fresh tasks...'
+    );
+    await this._regenerateAfterDecision(user, pending);
+  }
+
+  // Shared regeneration used by both keep/skip decision handlers. Runs the
+  // conversational generate path directly (gate already answered) and sends the
+  // resulting task list — no morning banner, no re-listing of old tasks.
+  async _regenerateAfterDecision(user, pending) {
+    const contextBuilder = require('../../core/context/contextBuilder');
+    const generateTasksExecutor = require('../../core/execution/executors/generateTasksExecutor');
+    const ACTIONS = require('../../core/actions/actionTypes');
+
+    try {
+      const context = await contextBuilder.build(user.telegram_id, '');
+      if (!context) {
+        await telegramClient.sendMessage(this.bot, user.telegram_id, '😅 Something went wrong. Try again.');
+        return;
+      }
+      const plan = {
+        intent: ACTIONS.GENERATE_TASKS,
+        payload: (pending && pending.payload) ? pending.payload : {},
+        _skipPendingGate: true,
+      };
+      const result = await generateTasksExecutor.execute(plan, context);
+      await telegramClient.sendMessage(
+        this.bot,
+        user.telegram_id,
+        result.message,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (error) {
+      logger.error(`_regenerateAfterDecision failed for ${user.telegram_id}:`, error);
+      await telegramClient.sendMessage(this.bot, user.telegram_id, '😅 Something went wrong generating tasks. Try again.');
+    }
+  }
+
+  // Handles the "add topic tasks on top of unfinished work" decision. Unlike the
+  // replace path, this regenerates through the executor so the originally
+  // requested topic (stored in stateManager) is preserved.
+  async handleAppendDecision(chatId, messageId, user, data) {
+    const stateManager = require('../../core/state/stateManager');
+    const pending = stateManager.getContext(user.telegram_id);
+    if (!pending) {
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '⌛ That request expired. Just ask me for the tasks again.'
+      );
+      return;
+    }
+
+    const userTz = user.timezone || 'UTC';
+    const today = timezoneUtils.getCurrentTimeInZone(userTz).toISOString().split('T')[0];
+
+    if (data === 'pending:addskip') {
+      await taskQueries.clearPendingForRegeneration(user.id, today);
+    }
+    stateManager.clearContext(user.telegram_id);
+
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      data === 'pending:addskip'
+        ? '⏭️ Skipped your unfinished tasks. Adding the new ones...'
+        : '➕ Keeping your unfinished tasks. Adding the new ones on top...'
+    );
+
+    await this._regenerateAfterDecision(user, pending);
+  }
+
   async handleResetCancel(chatId, messageId) {
-    await this.bot.editMessageText(
-      '❌ Reset cancelled. Your profile is safe.',
-      { chat_id: chatId, message_id: messageId }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      '❌ Reset cancelled. Your profile is safe.'
     );
   }
   
@@ -851,17 +1081,21 @@ async handleStuckResponse(
         })
         .eq('telegram_id', telegramId);
 
-      await this.bot.editMessageText(
-        '🤖 Got it! Generating your tasks now...',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '🤖 Got it! Generating your tasks now...'
       );
 
       await dailyCron.sendTasksImmediately(telegramId);
     } catch (error) {
       logger.error(`morning_pref_ai failed for ${telegramId}:`, error);
-      await this.bot.editMessageText(
-        '❌ Failed to generate tasks. Try saying "generate tasks".',
-        { chat_id: chatId, message_id: messageId }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        '❌ Failed to generate tasks. Try saying "generate tasks".'
       );
     }
   }
@@ -879,9 +1113,12 @@ async handleStuckResponse(
         })
         .eq('telegram_id', telegramId);
 
-      await this.bot.editMessageText(
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
         `✅ Got it! Add your tasks anytime:\n\nJust say:\n*Add tasks*\n1. Your first task\n2. Your second task\n3. Your third task`,
-        { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
+        { parse_mode: 'Markdown' }
       );
     } catch (error) {
       logger.error(`morning_pref_manual failed for ${telegramId}:`, error);
@@ -895,11 +1132,12 @@ async handleStuckResponse(
       callbackQuery
     );
 
-  await this.bot.editMessageText(
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
     '🗺️ *Your Roadmap*\n\nWhat would you like to see?',
     {
-      chat_id: chatId,
-      message_id: messageId,
       parse_mode: 'Markdown',
       ...inlineKeyboards.roadmapMenu(),
     }
@@ -917,22 +1155,22 @@ async handleRoadmapFull(callbackQuery) {
     );
 
   if (!freshUser?.roadmap) {
-    await this.bot.editMessageText(
-      'No roadmap found.',
-      {
-        chat_id: chatId,
-        message_id: messageId,
-      }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      'No roadmap found.'
     );
 
     return;
   }
 
-  await this.bot.editMessageText(
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
     freshUser.roadmap,
     {
-      chat_id: chatId,
-      message_id: messageId,
       parse_mode: 'Markdown',
       ...inlineKeyboards.mainMenu(),
     }
@@ -961,12 +1199,11 @@ if (
   !roadmapJson.phases
 ) {
 
-  await this.bot.editMessageText(
-    'No roadmap phases found.',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    'No roadmap phases found.'
   );
 
   return;
@@ -982,23 +1219,23 @@ if (
     );
 if (!phase) {
 
-  await this.bot.editMessageText(
-    'Current roadmap phase not found.',
-    {
-      chat_id: chatId,
-      message_id: messageId,
-    }
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
+    'Current roadmap phase not found.'
   );
 
   return;
 }
 
 
-  await this.bot.editMessageText(
+  await telegramClient.editMessage(
+    this.bot,
+    chatId,
+    messageId,
     `📍 *Current Phase: ${phase.phase_name}*`,
     {
-      chat_id: chatId,
-      message_id: messageId,
       parse_mode: 'Markdown',
       ...inlineKeyboards.mainMenu(),
     }
@@ -1022,12 +1259,11 @@ async handleRoadmapWeekly(
       !user.roadmap_json ||
       !user.roadmap_json.phases
     ) {
-      await this.bot.editMessageText(
-        'No roadmap found yet.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-        }
+      await telegramClient.editMessage(
+        this.bot,
+        chatId,
+        messageId,
+        'No roadmap found yet.'
       );
 
       return;
@@ -1059,11 +1295,12 @@ ${JSON.stringify(
         }
       );
 
-    await this.bot.editMessageText(
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
       weeklyPlan,
       {
-        chat_id: chatId,
-        message_id: messageId,
         parse_mode: 'Markdown',
       }
     );
@@ -1075,12 +1312,11 @@ ${JSON.stringify(
       err
     );
 
-    await this.bot.editMessageText(
-      'Failed generating weekly breakdown.',
-      {
-        chat_id: chatId,
-        message_id: messageId,
-      }
+    await telegramClient.editMessage(
+      this.bot,
+      chatId,
+      messageId,
+      'Failed generating weekly breakdown.'
     );
   }
 }

@@ -46,11 +46,13 @@ class TaskService {
         };
       }
 
-      const lastSentDate = await taskQueries.getLastCompletionDate(userId);
       const today = new Date().toISOString().split('T')[0];
-      if (lastSentDate !== today) {
-        await userQueries.updateStreak(userId, true);
-      }
+const todayTasks = await taskQueries.getDailyTasks(userId, today);
+const completedToday = todayTasks.filter(t => t.status === 'completed').length;
+if (completedToday === 1) {
+  // First completion of the day — increment streak
+  await userQueries.updateStreak(userId, true);
+}
 
       const shouldAsk = await socraticEvaluator.shouldAskSocratic(userId);
 
@@ -65,39 +67,37 @@ class TaskService {
     }
   }
 
-  async handleTaskSkip(userId, taskId, reason) {
-    try {
-      const { supabase } = require('../../config/supabase');
-      
-      const { data, error } = await supabase
-        .from('tasks')
-        .update({
-          status: 'skipped',
-          skip_reason: reason,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', taskId)
-        .eq('user_id', userId)
-        .neq('status', 'completed')
-        .neq('status', 'skipped')
-        .select('id')
-        .single();
+ async handleTaskSkip(userId, taskId, reason) {
+  try {
+    const { supabase } = require('../../config/supabase');
 
-      logger.info(`Task ${taskId} skipped by user ${userId}: ${reason}`);
+    const { error } = await supabase
+  .from('tasks')
+  .update({
+    status: 'skipped',
+    skip_reason: reason,
+    updated_at: new Date().toISOString(),
+  })
+  .eq('id', taskId);
 
-      return { skipped: !!data };
-    } catch (error) {
-      logger.error(`Failed to skip task ${taskId}:`, error);
-      throw error;
-    }
+
+    if (error) throw error;
+
+    logger.info(`Task ${taskId} skipped by user ${userId}: ${reason}`);
+    return { skipped: true };
+  } catch (error) {
+    logger.error(`Failed to skip task ${taskId}:`, error);
+    throw error;
   }
+}
 
   async handleTaskTooHard(userId, taskId) {
     try {
       const originalTask = await taskQueries.getTaskById(taskId);
 
       if (originalTask.status === 'too_hard') {
-        const todayTasks = await taskQueries.getDailyTasks(userId);
+        const today = new Date().toISOString().split('T')[0];
+const todayTasks = await taskQueries.getDailyTasks(userId, today);
         const simplifiedTitle = `${originalTask.title} (Simplified)`;
         const existingSimplified = todayTasks.find(t => t.title === simplifiedTitle);
         
@@ -149,7 +149,7 @@ class TaskService {
         }
       ];
 
-      const result = await aiOrchestrator.executeJson(messages, { temperature: 0.7, maxTokens: 300 });
+      const result = await aiOrchestrator.executeJSON(messages, { temperature: 0.7, maxTokens: 300 });
 
       const tasks = await taskQueries.createTasks(userId, [{
         title: result.title || `${originalTask.title} (Simplified)`,
@@ -181,7 +181,8 @@ class TaskService {
 
   async getTodayProgress(userId) {
     try {
-      const todayTasks = await taskQueries.getDailyTasks(userId);
+      const today = new Date().toISOString().split('T')[0];
+const todayTasks = await taskQueries.getDailyTasks(userId, today);
       
       const completed = todayTasks.filter(t => t.status === 'completed').length;
       const total = todayTasks.length;

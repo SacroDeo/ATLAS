@@ -38,6 +38,25 @@ class ActionPlanner {
 _localClassify(message) {
   const lower = message.toLowerCase().trim();
 
+  // ─── SLASH COMMANDS (highest priority) ────────────────────────────────────
+  if (lower === '/today' || lower === '/start')
+    return { intent: ACTIONS.SHOW_TASKS, confidence: 1.0, payload: {} };
+
+  if (lower === '/progress')
+    return { intent: ACTIONS.SHOW_PROGRESS, confidence: 1.0, payload: {} };
+
+  if (lower === '/stats')
+    return { intent: ACTIONS.SHOW_PROGRESS, confidence: 1.0, payload: {} };
+
+  if (lower === '/review')
+    return { intent: ACTIONS.SHOW_PROGRESS, confidence: 1.0, payload: {} };
+
+  if (lower === '/goal')
+    return { intent: ACTIONS.SHOW_GOAL, confidence: 1.0, payload: {} };
+
+  if (lower === '/help')
+    return { intent: ACTIONS.GENERAL_CHAT, confidence: 1.0, payload: {} };
+
   // Progress intent
   if (
     /\b(my progress|show progress|show my progress|how am i doing|how have i been doing|my stats|completion rate|how many tasks|did i finish)\b/i.test(lower) ||
@@ -56,7 +75,7 @@ _localClassify(message) {
   if (/^(generate tasks?|make tasks?|create tasks?|new tasks?)$/i.test(lower))
     return { intent: ACTIONS.GENERATE_TASKS, confidence: 1.0, payload: {} };
 
-  if (/^(hello|hi|hey|what's up|sup|good morning|good evening|good afternoon)$/i.test(lower))
+  if (/^(hello|hi|hey|what's up|sup)$/i.test(lower))
     return { intent: ACTIONS.GENERAL_CHAT, confidence: 1.0, payload: {} };
 
   // Time constraint

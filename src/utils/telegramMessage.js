@@ -51,7 +51,8 @@ const telegramMessage = {
 
   async sendSafe(bot, chatId, text, extra = {}) {
     try {
-      return await bot.sendMessage(chatId, this._truncateIfNeeded(String(text || '')), extra);
+      return await telegramClient.sendMessage(
+  bot,chatId, this._truncateIfNeeded(String(text || '')), extra);
     } catch (error) {
       const logger = require('./logger');
       logger.error(`sendSafe failed for chat ${chatId}:`, error);
@@ -91,7 +92,8 @@ const telegramMessage = {
     const escapedText = this._truncateIfNeeded(this._buildText(template, values));
     
     try {
-      return await bot.sendMessage(chatId, escapedText, {
+      return await telegramClient.sendMessage(
+  bot,chatId, escapedText, {
         parse_mode: 'MarkdownV2',
         ...extra,
       });
@@ -100,7 +102,8 @@ const telegramMessage = {
         logger.warn(`MarkdownV2 parse failed for chat ${chatId}, falling back to plain text`);
         const plainText = markdown.unescapeMarkdown(escapedText);
         try {
-          return await bot.sendMessage(chatId, this._truncateIfNeeded(plainText), extra);
+          return await telegramClient.sendMessage(
+  bot,chatId, this._truncateIfNeeded(plainText), extra);
         } catch (fallbackError) {
           logger.error(`Plain text fallback also failed for chat ${chatId}:`, fallbackError);
           throw fallbackError;
@@ -141,7 +144,8 @@ const telegramMessage = {
 
   async sendPlain(bot, chatId, text, extra = {}) {
     try {
-      return await bot.sendMessage(chatId, this._truncateIfNeeded(text), extra);
+      return await telegramClient.sendMessage(
+  bot,chatId, this._truncateIfNeeded(text), extra);
     } catch (error) {
       logger.error(`Plain send failed for chat ${chatId}:`, error);
       throw error;
