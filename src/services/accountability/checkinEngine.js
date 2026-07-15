@@ -174,7 +174,7 @@ const checkinEngine = {
     const inactivityDays = Math.floor(snapshot.inactivityHours / 24);
 
     const systemPrompt = type === 'inactivityRevival'
-      ? `You are ATLAS, a personal accountability coach. Write a single short (2-3 sentence) message to re-engage ${user.first_name || 'the user'} who has been inactive for ${inactivityDays} days.
+      ? `You are ATLAS, a supportive personal goal assistant. Write a single short (2-3 sentence) message to re-engage ${user.first_name || 'the user'} who has been inactive for ${inactivityDays} days.
 
 Their goal: ${user.goal}
 Their biggest struggle: ${user.biggest_struggle || 'staying consistent'}

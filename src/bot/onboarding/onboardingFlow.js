@@ -526,7 +526,7 @@ class OnboardingFlow {
       "*Why entering your own tasks works better than you'd think:*\n" +
       "• You already know what matters most today\n" +
       "• Tasks you chose yourself = higher follow-through (proven)\n" +
-      "• I still track everything, send reminders, and hold you accountable\n\n" +
+      "• I still track everything, send reminders, and keep your plan on course\n\n" +
       "Best of both worlds? Pick *Both* — I generate a base plan, you adjust it.",
       {
         parse_mode: 'Markdown',
@@ -687,7 +687,7 @@ Max 4 words per week focus. Max 12 weeks. No commentary before or after.`
       const messages = [
         {
           role: 'system',
-          content: `You are ATLAS, a direct no-nonsense accountability coach.
+          content: `You are ATLAS, a practical personal goal assistant.
 
 The user is working on: "${user.goal}"
 Available time per day: "${user.available_time}"
@@ -737,7 +737,7 @@ Be concise. Be real.`
       chatId,
       "*How do you want to handle your daily tasks?*\n\n" +
       "1️⃣ *AI generates them* — I build tasks daily based on your roadmap and progress\n" +
-      "2️⃣ *You enter them* — You tell me what to work on each day, I track and hold you accountable",
+      "2️⃣ *You enter them* — You tell me what to work on each day, I track it and keep you on course",
       {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -771,7 +771,7 @@ Be concise. Be real.`
       '💡 *You can also enter your own tasks instead of AI-generated ones* — ' +
       '• ✏️ *You can Add, delete, or replace tasks anytime*\n' +
       '• Say "add task X", "delete task 2", or "replace task 1 with Y"\n' +
-      'great if you already know what you need to do and just want accountability.\n\n' +
+      'great if you already know what you need to do and just want an assistant tracking the plan.\n\n' +
       'Setup takes under 1 minute. Ready?',
       {
         parse_mode: 'Markdown',

@@ -1,7 +1,7 @@
 {
-  "name": "atlas-accountability-bot",
+  "name": "atlas-goal-assistant",
   "version": "1.0.0",
-  "description": "ATLAS - Adaptive Accountability System for Students",
+  "description": "ATLAS - Personal Goal Assistant on Telegram",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

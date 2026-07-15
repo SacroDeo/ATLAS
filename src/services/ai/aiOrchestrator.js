@@ -323,7 +323,7 @@ class AIOrchestrator {
     return [
       {
         role: 'system',
-        content: `You are ATLAS, an adaptive accountability system. Generate personalized daily tasks based on the user's context. 
+        content: `You are ATLAS, an adaptive personal goal assistant. Generate personalized daily tasks based on the user's context.
         
         User Profile:
         - Goal: ${userContext.goal}

@@ -158,7 +158,7 @@ KNOWLEDGE LEVEL: ADVANCED:
         return '';
       })();
 
-const systemPrompt = `You are ATLAS, a personal accountability assistant.
+const systemPrompt = `You are ATLAS, a personal goal assistant.
 
 USER PROFILE:
 - Goal: ${user.goal}

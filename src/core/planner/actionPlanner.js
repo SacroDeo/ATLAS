@@ -192,7 +192,7 @@ _localClassify(message) {
       : 'No recent conversation';
 
     try {
-      const prompt = `You are an intent classifier for ATLAS, a personal accountability bot.
+      const prompt = `You are an intent classifier for ATLAS, a personal goal assistant bot.
 
 USER PROFILE:
 - Name: ${context.user.first_name}
