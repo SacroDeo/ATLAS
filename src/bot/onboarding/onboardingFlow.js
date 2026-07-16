@@ -981,11 +981,37 @@ Be concise. Be real.`
       }
 
       if (data === 'finalmode_ai' || data === 'finalmode_manual') {
+        // Stale-button guard: after /reset a user could tap an OLD finalmode
+        // button and jump straight to "completed" with a null goal, skipping
+        // onboarding entirely. Only honor this while it's actually their step.
+        const currentUser = await userQueries.getUserByTelegramId(telegramId);
+        if (!currentUser || !currentUser.goal) {
+          await telegramClient.sendMessage(
+            this.bot,
+            chatId,
+            'That button is from an older setup. Type /start to begin fresh.'
+          );
+          return;
+        }
+
         const taskMode = data === 'finalmode_ai' ? 'ai' : 'manual';
 
         logger.info(`Final mode selected: ${taskMode} for user ${telegramId}`);
 
-        await userQueries.updateOnboardingState(telegramId, 'completed', { task_mode: taskMode });
+        try {
+          await userQueries.updateOnboardingState(telegramId, 'completed', {
+            task_mode: taskMode,
+            // Manual mode: route the next messages into the manual task-entry
+            // pipeline. Without this the "send me your first task" promise was
+            // a lie — typed tasks went to the AI planner instead.
+            input_mode: taskMode === 'manual' ? 'manual_task_entry' : 'chat',
+          });
+        } catch (err) {
+          // input_mode column may not exist until migration 002 is applied —
+          // never let that block onboarding completion.
+          logger.error('finalmode update with input_mode failed, retrying without it (run migration 002):', err.message);
+          await userQueries.updateOnboardingState(telegramId, 'completed', { task_mode: taskMode });
+        }
         
         const savedUser = await userQueries.getUserByTelegramId(telegramId);
         logger.info(`Task mode verified in DB: ${savedUser?.task_mode} for user ${telegramId}`);

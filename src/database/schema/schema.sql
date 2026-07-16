@@ -24,6 +24,30 @@ CREATE TABLE users (
     onboarding_state VARCHAR(50) DEFAULT 'goal',
     timezone VARCHAR(50) DEFAULT 'UTC',
     is_active BOOLEAN DEFAULT true,
+    -- Onboarding & scheduling
+    experience_level VARCHAR(50),
+    domain_knowledge TEXT,
+    life_struggle TEXT,
+    awaiting_life_struggle BOOLEAN DEFAULT false,
+    secondary_goals TEXT,
+    preferred_time TIME,
+    preferred_start_date DATE,
+    start_preference VARCHAR(20),
+    task_mode VARCHAR(20),
+    input_mode VARCHAR(30) DEFAULT 'chat',
+    -- Roadmap
+    roadmap TEXT,
+    roadmap_json JSONB,
+    -- Daily delivery bookkeeping
+    last_tasks_sent_date DATE,
+    last_morning_question_date DATE,
+    morning_answer_received_today BOOLEAN DEFAULT false,
+    last_morning_answer TEXT,
+    daily_task_preference VARCHAR(20),
+    daily_task_preference_date DATE,
+    -- Progressive profile questions
+    progressive_onboarding_step INTEGER DEFAULT 0,
+    last_progressive_question_date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -43,9 +67,19 @@ CREATE TABLE tasks (
     skip_reason TEXT,
     is_daily BOOLEAN DEFAULT false,
     is_socratic BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    source VARCHAR(20) DEFAULT 'ai',
     completed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- TASK GENERATION LOCKS (prevents duplicate daily generation)
+CREATE TABLE task_generation_locks (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_date DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (user_id, assigned_date)
 );
 
 -- CHECKINS TABLE
@@ -106,6 +140,9 @@ CREATE TABLE socratic_logs (
     understanding_level VARCHAR(50) CHECK (understanding_level IN ('deep', 'moderate', 'shallow', 'none')),
     follow_up_required BOOLEAN DEFAULT false,
     follow_up_question TEXT,
+    follow_up_depth INTEGER DEFAULT 0,
+    parent_log_id UUID REFERENCES socratic_logs(id) ON DELETE SET NULL,
+    awaiting_response BOOLEAN DEFAULT false,
     reinforcement_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

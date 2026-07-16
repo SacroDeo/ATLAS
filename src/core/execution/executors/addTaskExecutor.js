@@ -52,7 +52,7 @@ const today = userNow.toISOString().split('T')[0];
       due_date: today,
       is_daily: true,
       is_socratic: false,
-      is_socratic: false,
+      source: 'manual', // user-entered — default 'ai' broke manual-task history
     }));
 
     const saved = await taskQueries.createTasks(user.id, taskObjects);

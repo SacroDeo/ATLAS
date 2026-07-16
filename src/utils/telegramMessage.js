@@ -1,6 +1,7 @@
 // src/utils/telegramMessage.js
 const markdown = require('./markdown');
 const logger = require('./logger');
+const telegramClient = require('./telegram/telegramClient');
 
 const PARSE_ERROR_PATTERNS = [
   'can\'t parse entities',

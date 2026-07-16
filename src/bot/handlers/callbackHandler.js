@@ -128,6 +128,13 @@ async handleCallback(callbackQuery) {
       return this.handleAppendDecision(chatId, messageId, user, data);
     }
 
+    if (data === 'morning_pref_ai' || data === 'morning_pref_manual') {
+      const { chatId, messageId, user } = await this._getCallbackContext(callbackQuery);
+      return data === 'morning_pref_ai'
+        ? this.handleMorningPrefAi(chatId, messageId, user, user.telegram_id)
+        : this.handleMorningPrefManual(chatId, messageId, user, user.telegram_id);
+    }
+
     if (data === 'reset_cancel') {
 
       const {
@@ -468,6 +475,30 @@ async handleDone(callbackQuery, taskId) {
     tone.completion.positive
   );
 
+  // Understanding check: taskService says whether this user is due a
+  // socratic question — generate one and attach the Answer/Skip keyboard.
+  // (This was computed but ignored, so the whole socratic loop never started.)
+  if (result.shouldAskSocratic) {
+    try {
+      const question = await socraticEvaluator.generateQuestion(taskId, user.id);
+      if (question) {
+        await socraticQueries.createLog({
+          userId: user.id,
+          taskId,
+          question,
+        });
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          `🤔 *Quick check:*\n\n${question}`,
+          { parse_mode: 'Markdown', ...inlineKeyboards.socraticPrompt(taskId) }
+        );
+      }
+    } catch (err) {
+      logger.error(`Socratic question failed for ${user.telegram_id} (task ${taskId}):`, err);
+    }
+  }
+
   await this._maybeAskProgressiveQuestion(
     chatId,
     updatedUser
@@ -477,60 +508,53 @@ async handleDone(callbackQuery, taskId) {
   // FIX 7: Atomic progressive question guard
   async _maybeAskProgressiveQuestion(chatId, user) {
     try {
-      const step = user.progressive_onboarding_step || 0;
-      const today = new Date().toISOString().split('T')[0];
+      // Pick the question by which profile field is actually missing —
+      // gating on step numbers stalled forever because main onboarding
+      // pre-fills biggest_struggle, so step 0 could never fire and
+      // motivation was never collected.
+      let question = null;
+      let nextStep = null;
 
-      // FIX 7: Atomic DB guard — only one callback can acquire
-      const acquired = await userQueries.trySetProgressiveQuestionDate(
-        user.telegram_id,
-        today
-      );
-
-      if (!acquired) return;
-
-      if (step === 0 && !user.biggest_struggle) {
-        await telegramClient.sendMessage(
-          this.bot,
-          chatId,
+      if (!user.biggest_struggle) {
+        nextStep = 1;
+        question =
           "👋 Quick question while you're on a roll —\n\n" +
           "*What's your biggest challenge when it comes to staying consistent?*\n\n" +
           "Maybe it's procrastination, getting overwhelmed, or losing momentum after a few days. " +
-          "Knowing this helps me spot the pattern early and adapt before it derails you.",
-          { parse_mode: 'Markdown' }
-        );
-        await userQueries.incrementProgressiveStep(user.telegram_id);
-        return;
-      }
-
-      if (step === 1 && !user.domain_knowledge) {
-        await telegramClient.sendMessage(
-          this.bot,
-          chatId,
+          "Knowing this helps me spot the pattern early and adapt before it derails you.";
+      } else if (!user.domain_knowledge) {
+        nextStep = 2;
+        question =
           "🎯 One more quick thing —\n\n" +
           "*What's your current experience level in the area your goal is in?*\n\n" +
           "For example: 'I've done Python basics but never built a real project' " +
-          "or 'I'm completely new to this.' This helps me set the right difficulty.",
-          { parse_mode: 'Markdown' }
-        );
-        await userQueries.incrementProgressiveStep(user.telegram_id);
-        return;
-      }
-
-      if (step === 2 && !user.motivation) {
-        await telegramClient.sendMessage(
-          this.bot,
-          chatId,
+          "or 'I'm completely new to this.' This helps me set the right difficulty.";
+      } else if (!user.motivation) {
+        nextStep = 3;
+        question =
           "🌟 You've been showing up consistently — respect.\n\n" +
           "*What's the deeper reason behind your goal?*\n\n" +
           "Not the surface answer — the real one. " +
           "What will achieving this make possible in your life? " +
-          "When things get hard, this is what I'll remind you of.",
-          { parse_mode: 'Markdown' }
-        );
-        await userQueries.incrementProgressiveStep(user.telegram_id);
-        return;
+          "When things get hard, this is what I'll remind you of.";
       }
 
+      if (!question) return; // profile complete — don't burn the daily slot
+
+      const today = new Date().toISOString().split('T')[0];
+
+      // FIX 7: Atomic DB guard — only one callback can acquire per day
+      const acquired = await userQueries.trySetProgressiveQuestionDate(
+        user.telegram_id,
+        today
+      );
+      if (!acquired) return;
+
+      await telegramClient.sendMessage(this.bot, chatId, question, {
+        parse_mode: 'Markdown',
+      });
+      // Step tells handleProgressiveAnswer which field the next reply fills.
+      await userQueries.setProgressiveStep(user.telegram_id, nextStep);
     } catch (err) {
       logger.error(`Progressive question error for ${user.telegram_id}:`, err);
     }
@@ -753,10 +777,14 @@ async handleSkipSocratic(
   callbackQuery
 ) {
 
-  const { chatId, messageId } =
+  const { chatId, messageId, user } =
     await this._getCallbackContext(
       callbackQuery
     );
+
+  // Clear the awaiting log so the user's next message isn't swallowed
+  // as a socratic answer.
+  await socraticQueries.clearAwaitingResponse(user.id);
 
   await telegramClient.editMessage(
     this.bot,
@@ -794,13 +822,13 @@ async handleSkipSocratic(
       chatId,
       messageId,
       `📈 *Your Stats*\n\n` +
-      `🎯 Goal: ${user.goal}\n` +
-      `📅 Deadline: ${user.deadline}\n` +
-      `⏰ Daily Time: ${user.available_time}\n` +
+      `🎯 Goal: ${user.goal || 'Not set — type /start'}\n` +
+      (user.deadline ? `📅 Deadline: ${user.deadline}\n` : '') +
+      `⏰ Daily Time: ${user.available_time || 'Not set'}\n` +
       `🔥 Current Streak: ${user.current_streak} days\n` +
       `👑 Best Streak: ${user.longest_streak} days\n` +
       `🗓 Active Since: ${dateUtils.formatDate(user.created_at)}\n` +
-      `🧠 Personality: ${user.personality_type}`,
+      (user.personality_type ? `🧠 Personality: ${user.personality_type}` : ''),
       {
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),
@@ -814,11 +842,11 @@ async handleSkipSocratic(
       chatId,
       messageId,
       `🎯 *Your Goal*\n\n` +
-      `*What:* ${user.goal}\n` +
-      `*By when:* ${user.deadline}\n` +
-      `*Daily time:* ${user.available_time}\n\n` +
-      `*Why it matters:*\n${user.motivation}\n\n` +
-      `*Current challenge:*\n${user.biggest_struggle}`,
+      `*What:* ${user.goal || 'Not set — type /start'}\n` +
+      (user.deadline ? `*By when:* ${user.deadline}\n` : '') +
+      `*Daily time:* ${user.available_time || 'Not set'}\n\n` +
+      (user.motivation ? `*Why it matters:*\n${user.motivation}\n\n` : '') +
+      (user.biggest_struggle ? `*Current challenge:*\n${user.biggest_struggle}` : ''),
       {
         parse_mode: 'Markdown',
         ...inlineKeyboards.mainMenu(),

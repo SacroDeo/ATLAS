@@ -81,14 +81,30 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
+let pollingRestartInFlight = false;
+
 bot.on('polling_error', (error) => {
   logger.error('Polling error:', error.message);
 
   if (error.code === 'EFATAL') {
+    // During an outage EFATAL fires on every failed poll cycle — without a
+    // guard each one scheduled its own restart, stacking parallel getUpdates
+    // loops that then 409-conflicted with each other.
+    if (pollingRestartInFlight) return;
+    pollingRestartInFlight = true;
+
     logger.warn('Fatal polling error — restarting in 5s...');
     alertAdmin('polling', `Fatal polling error: ${error.message} — auto-restarting`);
     setTimeout(() => {
-      bot.stopPolling().then(() => bot.startPolling());
+      bot.stopPolling()
+        .catch((err) => logger.error('stopPolling failed (continuing to restart):', err.message))
+        .then(() => bot.startPolling())
+        .then(() => logger.info('Polling restarted'))
+        .catch((err) => {
+          logger.error('startPolling failed — will retry on next EFATAL:', err.message);
+          alertAdmin('polling', `Polling restart FAILED: ${err.message}`);
+        })
+        .finally(() => { pollingRestartInFlight = false; });
     }, 5000);
     return;
   }

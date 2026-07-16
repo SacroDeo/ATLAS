@@ -146,14 +146,6 @@ const isBlocked = blockedLower.some(blocked =>
       const difficultyOrder = { easy: 0, medium: 1, hard: 2 };
       const capLevel = difficultyOrder[behaviorProfile.difficultyCap] ?? 2;
       validatedTasks = validatedTasks.filter(task => {
-        if (validatedTasks.length === 0) {
-  logger.warn('[DailyTaskGenerator] All tasks filtered out. Using fallback tasks.');
-
-  validatedTasks = this.getFallbackTasks(user).slice(
-    0,
-    behaviorProfile.maxTasks
-  );
-}
         const taskLevel = difficultyOrder[task.difficulty_level] ?? 1;
         if (taskLevel > capLevel) {
           logger.warn(`[DailyTaskGenerator] Filtered out task "${task.title}" — difficulty ${task.difficulty_level} exceeds cap ${behaviorProfile.difficultyCap}`);
@@ -161,6 +153,15 @@ const isBlocked = blockedLower.some(blocked =>
         }
         return true;
       });
+
+      // If filtering removed EVERYTHING, fall back rather than saving zero
+      // tasks. (This check used to live inside the filter callback above,
+      // where it could never run against an empty array.)
+      if (validatedTasks.length === 0) {
+        logger.warn('[DailyTaskGenerator] All tasks filtered out. Using fallback tasks.');
+        const fallback = await this.getFallbackTasks(user);
+        validatedTasks = fallback.slice(0, behaviorProfile.maxTasks);
+      }
 
       const tasksWithDate = validatedTasks.map(task => ({
         ...task,

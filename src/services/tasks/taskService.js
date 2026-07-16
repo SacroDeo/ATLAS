@@ -15,6 +15,7 @@ class TaskService {
         .from('tasks')
         .select('status')
         .eq('id', taskId)
+        .eq('user_id', userId) // ownership: never act on another user's task
         .single();
 
       if (!existing) {
@@ -35,6 +36,7 @@ class TaskService {
           completed_at: new Date().toISOString(),
         })
         .eq('id', taskId)
+        .eq('user_id', userId)
         .neq('status', 'completed')
         .select('id')
         .single();
@@ -68,17 +70,24 @@ class TaskService {
   try {
     const { supabase } = require('../../config/supabase');
 
-    const { error } = await supabase
+    const { data: skippedRows, error } = await supabase
   .from('tasks')
   .update({
     status: 'skipped',
     skip_reason: reason,
     updated_at: new Date().toISOString(),
   })
-  .eq('id', taskId);
+  .eq('id', taskId)
+  .eq('user_id', userId) // ownership: never act on another user's task
+  .neq('status', 'completed') // a completed task stays completed
+  .select('id');
 
 
     if (error) throw error;
+    if (!skippedRows || skippedRows.length === 0) {
+      logger.warn(`Skip ignored for task ${taskId} (not owned by ${userId} or already completed)`);
+      return { skipped: false };
+    }
 
     logger.info(`Task ${taskId} skipped by user ${userId}: ${reason}`);
     return { skipped: true };
@@ -91,6 +100,11 @@ class TaskService {
   async handleTaskTooHard(userId, taskId) {
     try {
       const originalTask = await taskQueries.getTaskById(taskId);
+
+      // Ownership: never act on another user's task
+      if (!originalTask || originalTask.user_id !== userId) {
+        throw new Error(`Task ${taskId} not found`);
+      }
 
       if (originalTask.status === 'too_hard') {
         const today = new Date().toISOString().split('T')[0];

@@ -166,6 +166,21 @@ const userQueries = {
         longest_streak: 0,
         onboarding_completed: false,
         onboarding_state: 'goal',
+        // Everything below was previously left stale, so a re-onboarded user
+        // kept their old roadmap/mode and skipped several onboarding steps.
+        task_mode: null,
+        roadmap: null,
+        roadmap_json: null,
+        life_struggle: null,
+        domain_knowledge: null,
+        preferred_time: null,
+        start_preference: null,
+        progressive_onboarding_step: 0,
+        last_progressive_question_date: null,
+        last_tasks_sent_date: null,
+        last_morning_question_date: null,
+        daily_task_preference: null,
+        // timezone intentionally KEPT — the user's location didn't change.
       })
       .eq('id', userId)
       .select()
@@ -198,13 +213,16 @@ const userQueries = {
 
     if (fetchError) throw fetchError;
 
-    const nextStep = (user.progressive_onboarding_step || 0) + 1;
+    return this.setProgressiveStep(telegramId, (user.progressive_onboarding_step || 0) + 1);
+  },
+
+  async setProgressiveStep(telegramId, step) {
     const today = new Date().toISOString().split('T')[0];
 
     const { data, error } = await supabase
       .from('users')
       .update({
-        progressive_onboarding_step: nextStep,
+        progressive_onboarding_step: step,
         last_progressive_question_date: today,
       })
       .eq('telegram_id', telegramId)

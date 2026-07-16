@@ -101,6 +101,11 @@ class MessageHandler {
         await this.handleAddTaskDescription(chatId, text, user);
         return;
       }
+      if (currentState === 'awaiting_timezone_change') {
+        stateManager.clear(user.telegram_id);
+        await this.handleTimezoneChangeInput(chatId, text, user);
+        return;
+      }
       if (currentState && currentState.startsWith('confirming_delete_')) {
         const taskId = currentState.replace('confirming_delete_', '');
         const lowerText = text.toLowerCase().trim();
@@ -277,6 +282,18 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
           freshUser
         );
         await telegramClient.sendMessage(this.bot, chatId, clarification, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Settings phrases — must run BEFORE the generic "change..." catch
+      // below routes them into the AI planner (which has no such intent).
+      if (/^(change|set|update)\s+(my\s+)?(delivery\s+)?time\b/.test(lower) || lower === 'change time') {
+        await this.handleChangeTime(chatId, freshUser);
+        return;
+      }
+      if (/^(change|set|update)\s+(my\s+)?time\s*zone\b/.test(lower) || lower === 'change timezone') {
+        stateManager.set(freshUser.telegram_id, 'awaiting_timezone_change');
+        await this.handleChangeTimezone(chatId, freshUser);
         return;
       }
 
@@ -490,6 +507,7 @@ if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) 
       due_date: todayDate,
       is_daily: true,
       is_socratic: false,
+      source: 'manual',
     }));
     const savedTasks = await taskQueries.createTasks(user.id, tasksToCreate);
     logger.info(`[_createTasksForUser] Saved ${savedTasks.length} tasks for user ${user.telegram_id}`);
@@ -716,6 +734,30 @@ Be warm and motivating. Reference their goal: ${user.goal}`
     );
   }
 
+  async handleTimezoneChangeInput(chatId, text, user) {
+    const parsed = timezoneUtils.parseUserInput(text);
+    if (!parsed || !timezoneUtils.isValidIANA(parsed)) {
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        `❌ I couldn't recognize "${text}" as a timezone.\n\nTry a major city ("Mumbai", "London", "New York") or an offset ("UTC+5:30"). Say "change timezone" to try again.`
+      );
+      return;
+    }
+    const { supabase } = require('../../config/supabase');
+    const { error } = await supabase
+      .from('users')
+      .update({ timezone: parsed })
+      .eq('telegram_id', user.telegram_id);
+    if (error) throw error;
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      `✅ Timezone updated to *${timezoneUtils.getTimezoneDisplayName(parsed)}*\n\nYour daily tasks will now arrive at ${(user.preferred_time || '08:00').slice(0, 5)} in this timezone.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
   async handleStartNow(chatId, user) {
     try {
       const userTimezone = user.timezone || 'UTC';
@@ -869,6 +911,7 @@ Return ONLY valid JSON:
         due_date: todayDate,
         is_daily: true,
         is_socratic: false,
+        source: 'manual',
       }]);
       if (savedTasks && savedTasks.length > 0) {
         const task = savedTasks[0];
