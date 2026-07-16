@@ -45,11 +45,10 @@ class OnboardingFlow {
     const text       = msg.text?.trim();
 
     try {
-      if (text === '/start') {
-        await this._restartOnboarding(chatId, telegramId);
-        return;
-      }
-
+      // Ensure the user row exists BEFORE any branch that updates it.
+      // A brand-new user's first message is almost always /start (Telegram's
+      // Start button) — restarting onboarding before the row exists made
+      // updateOnboardingState throw and trapped new users in an error loop.
       let user = await userQueries.getUserByTelegramId(telegramId);
 
       if (!user) {
@@ -59,6 +58,11 @@ class OnboardingFlow {
           last_name:  msg.from.last_name  || '',
         });
         await this._sendWelcome(chatId, telegramId);
+        return;
+      }
+
+      if (text === '/start') {
+        await this._restartOnboarding(chatId, telegramId);
         return;
       }
 

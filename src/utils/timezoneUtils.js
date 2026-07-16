@@ -160,6 +160,29 @@ const timezoneUtils = {
     return toZonedTime(new Date(), timezone);
   },
 
+  /**
+   * The current calendar date (YYYY-MM-DD) in the given timezone.
+   * NEVER derive this via toZonedTime(...).toISOString() — that is only
+   * correct when the server process itself runs in UTC; on any other host
+   * it shifts the date by the server's own offset.
+   */
+  getLocalDateString(timezone, date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(date);
+  },
+
+  /**
+   * The calendar date N days before today, in the given timezone.
+   */
+  getLocalDateStringDaysAgo(timezone, daysAgo) {
+    return this.getLocalDateString(
+      timezone,
+      new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
+    );
+  },
+
   formatTimeInZone(date, timezone) {
     const zoned = toZonedTime(date, timezone);
     return format(zoned, 'h:mm a', { timeZone: timezone });

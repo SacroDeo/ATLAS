@@ -4,6 +4,7 @@ const userQueries = require('../../database/queries/userQueries');
 const taskQueries = require('../../database/queries/taskQueries');
 const memoryService = require('../memory/memoryService');
 const taskAdapter = require('./taskAdapter');
+const roadmapUtils = require('../../utils/roadmapUtils');
 const logger = require('../../utils/logger');
 
 
@@ -48,11 +49,9 @@ class DailyTaskGenerator {
 
       // ── STEP 3: Load roadmap phase constraints ─────────────────────────────
       let phaseConstraints = null;
-      if (user.roadmap_json && user.roadmap_json.phases) {
-        const currentPhaseIndex = user.current_phase_index || 1;
-        const currentPhase = user.roadmap_json.phases.find(
-          p => p.phase_index === currentPhaseIndex
-        );
+      {
+        // Phase index lives inside roadmap_json — see roadmapUtils.
+        const currentPhase = roadmapUtils.getCurrentPhase(user);
         if (currentPhase) {
           phaseConstraints = {
             phase_name: currentPhase.phase_name,

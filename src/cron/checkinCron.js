@@ -95,7 +95,7 @@ class CheckinCron {
 
   async _processUser(user, period) {
     const tz = user.timezone || 'UTC';
-    const userToday = timezoneUtils.getCurrentTimeInZone(tz).toISOString().split('T')[0];
+    const userToday = timezoneUtils.getLocalDateString(tz);
 
     // Backup in-memory dedup (primary dedup is the checkins upsert below).
     const guardKey = `${user.id}:${userToday}:${period}`;
@@ -122,12 +122,30 @@ class CheckinCron {
 
     // Primary dedup: atomic insert; a second attempt for the same
     // (user, date, type) comes back null and we bail before sending.
-    const marker = await checkinQueries.createCheckin(user.id, {
-      type: `checkin_${period}`,
-      response: null,
-      mood_rating: null,
-    });
-    if (!marker) return; // already sent today (or raced with another instance)
+    let marker = null;
+    let dbDedupAvailable = true;
+    try {
+      marker = await checkinQueries.createCheckin(user.id, {
+        type: `checkin_${period}`,
+        date: userToday,
+        response: null,
+        mood_rating: null,
+      });
+    } catch (err) {
+      // 23514 = the checkins CHECK constraint doesn't allow our types yet
+      // (migration 001_checkin_types.sql not applied). Don't let that kill
+      // the feature — fall back to in-memory dedup and nag the admin once.
+      if (err && err.code === '23514') {
+        dbDedupAvailable = false;
+        if (!this.constraintWarned) {
+          this.constraintWarned = true;
+          logger.error('[CheckinCron] checkins CHECK constraint rejects checkin types — run src/database/migrations/001_checkin_types.sql. Falling back to in-memory dedup.');
+        }
+      } else {
+        throw err;
+      }
+    }
+    if (dbDedupAvailable && !marker) return; // already sent today (or raced)
 
     const message = await this._buildMessage(user, snapshot, period, pending, completed, tasks);
     if (!message) return;

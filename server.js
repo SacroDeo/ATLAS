@@ -9,6 +9,20 @@ const config = require('./src/config');
 const logger = require('./src/utils/logger');
 const { setBot: setAlertBot, alertAdmin } = require('./src/utils/adminAlert');
 
+// Boot-time env sanity. Fail loudly NOW rather than half-working in a way
+// that only shows up as a security hole or broken logins later.
+if (!process.env.NODE_ENV) {
+  logger.warn('NODE_ENV is not set — defaulting to development. Set NODE_ENV=production on live servers.');
+}
+if (!config.dashboard.jwtSecret || config.dashboard.jwtSecret.length < 32) {
+  logger.error('FATAL: JWT_SECRET missing or shorter than 32 chars. Dashboard logins cannot work securely.');
+  process.exit(1);
+}
+if (config.server.env === 'production' && process.env.ENABLE_DEV_LOGIN === 'true') {
+  logger.error('FATAL: ENABLE_DEV_LOGIN=true with NODE_ENV=production. Refusing to start with dev auth bypass enabled.');
+  process.exit(1);
+}
+
 const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
 
 const MessageHandler = require('./src/bot/handlers/messageHandler');

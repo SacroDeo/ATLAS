@@ -4,6 +4,7 @@
 
 const adaptationEngine = require('./adaptationEngine');
 const behaviorProfileBuilder = require('./behaviorProfileBuilder');
+const roadmapUtils = require('../../utils/roadmapUtils');
 const logger = require('../../utils/logger');
 
 const taskAdapter = {
@@ -27,11 +28,9 @@ const taskAdapter = {
       behaviorDirectives.push(`PREFERRED TOPICS: ${behaviorProfile.allowedTopics.join(', ')}. Prefer tasks within these areas.`);
     }
 
-    if (user.roadmap_json && user.roadmap_json.phases) {
-      const currentPhaseIndex = user.current_phase_index || 1;
-      const currentPhase = user.roadmap_json.phases.find(
-        p => p.phase_index === currentPhaseIndex
-      );
+    {
+      // Phase index lives inside roadmap_json — see roadmapUtils.
+      const currentPhase = roadmapUtils.getCurrentPhase(user);
 
       if (currentPhase) {
         behaviorDirectives.push(`CURRENT ROADMAP PHASE: ${currentPhase.phase_name} (difficulty: ${currentPhase.difficulty})`);

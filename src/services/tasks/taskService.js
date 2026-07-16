@@ -46,13 +46,10 @@ class TaskService {
         };
       }
 
-      const today = new Date().toISOString().split('T')[0];
-const todayTasks = await taskQueries.getDailyTasks(userId, today);
-const completedToday = todayTasks.filter(t => t.status === 'completed').length;
-if (completedToday === 1) {
-  // First completion of the day — increment streak
-  await userQueries.updateStreak(userId, true);
-}
+      // NOTE: streaks are NOT updated here. The morning cron (dailyCron.processUser)
+      // is the single streak authority — it evaluates yesterday's full outcome
+      // exactly once per user per day. Incrementing at completion time as well
+      // double-counted streaks (+2/day for fully-completing users).
 
       const shouldAsk = await socraticEvaluator.shouldAskSocratic(userId);
 

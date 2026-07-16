@@ -7,7 +7,10 @@ const checkinQueries = {
       .from('checkins')
       .upsert({
         user_id: userId,
-        date: new Date().toISOString().split('T')[0],
+        // Callers that know the user's local day should pass checkinData.date
+        // (YYYY-MM-DD) — the server-UTC default is wrong for users whose
+        // local date differs from UTC at send time.
+        date: checkinData.date || new Date().toISOString().split('T')[0],
         checkin_type: checkinData.type,
         response: checkinData.response,
         mood_rating: checkinData.mood_rating,

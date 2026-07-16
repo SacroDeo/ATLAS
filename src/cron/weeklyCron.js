@@ -5,6 +5,7 @@ const reviewService = require('../services/reviews/reviewService');
 const memoryService = require('../services/memory/memoryService');
 const userQueries = require('../database/queries/userQueries');
 const personalityService = require('../services/personality/personalityService');
+const telegramClient = require('../utils/telegram/telegramClient');
 const logger = require('../utils/logger');
 
 class WeeklyCron {

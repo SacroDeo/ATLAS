@@ -36,12 +36,21 @@ class WeeklyReviewGenerator {
       // Get daily breakdown
       const dailyStats = await this.getDailyBreakdown(user.id, weekRange.start, weekRange.end);
 
-      // Generate review
-      const reviewText = await aiOrchestrator.generateWeeklyReview(
+      // Generate review — executeJSON returns a parsed object
+      // { review_text, recommendations: [...] }, not a string.
+      const aiReview = await aiOrchestrator.generateWeeklyReview(
         user,
         stats,
         memory?.summary
       );
+
+      const reviewText = typeof aiReview === 'string'
+        ? aiReview
+        : (aiReview?.review_text || 'No review generated this week.');
+
+      const recommendations = Array.isArray(aiReview?.recommendations) && aiReview.recommendations.length
+        ? aiReview.recommendations.slice(0, 3).join(' | ')
+        : this.extractRecommendations(reviewText);
 
       // Save review
       const reviewData = {
@@ -57,7 +66,7 @@ class WeeklyReviewGenerator {
         best_day: dailyStats.bestDay || 'N/A',
         worst_day: dailyStats.worstDay || 'N/A',
         patterns_detected: dailyStats.patterns || 'No clear patterns',
-        recommendations: this.extractRecommendations(reviewText),
+        recommendations,
       };
 
       const savedReview = await reviewQueries.createWeeklyReview(reviewData);
@@ -134,7 +143,7 @@ class WeeklyReviewGenerator {
 
   extractRecommendations(reviewText) {
     // Simple extraction - look for recommendation keywords
-    const lines = reviewText.split('\n');
+    const lines = String(reviewText || '').split('\n');
     const recommendations = lines.filter(line => 
       line.toLowerCase().includes('recommend') || 
       line.toLowerCase().includes('suggest') ||

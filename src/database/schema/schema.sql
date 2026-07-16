@@ -53,7 +53,7 @@ CREATE TABLE checkins (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date DATE NOT NULL DEFAULT CURRENT_DATE,
-    checkin_type VARCHAR(50) DEFAULT 'daily' CHECK (checkin_type IN ('daily', 'socratic', 'stuck')),
+    checkin_type VARCHAR(50) DEFAULT 'daily' CHECK (checkin_type IN ('daily', 'socratic', 'stuck', 'checkin_midday', 'checkin_evening')),
     response TEXT,
     mood_rating INTEGER CHECK (mood_rating >= 1 AND mood_rating <= 5),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

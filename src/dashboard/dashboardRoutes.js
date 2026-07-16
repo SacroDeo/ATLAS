@@ -61,28 +61,42 @@ router.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// Dev login requires BOTH: not production AND an explicit opt-in flag.
+// Gating on NODE_ENV alone was dangerous — NODE_ENV defaults to 'development'
+// when unset, so a forgotten env var on a live server would have turned this
+// endpoint into a full auth bypass (mint a session for any telegram id).
+function devLoginEnabled() {
+  return config.server.env !== 'production'
+    && process.env.ENABLE_DEV_LOGIN === 'true';
+}
+
 // Public config the frontend needs to render the login widget.
 router.get('/config', (req, res) => {
   res.json({
     botUsername: config.telegram.botUsername,
-    devLogin: config.server.env !== 'production',
+    devLogin: devLoginEnabled(),
   });
 });
 
 // DEV-ONLY login. Lets you into the dashboard on localhost, where Telegram's
-// Login Widget refuses to run. Hard-disabled in production so it can never be
-// used as an auth bypass on the live site.
+// Login Widget refuses to run. Requires ENABLE_DEV_LOGIN=true and never runs
+// in production.
 router.get('/dev-login', async (req, res) => {
-  if (config.server.env === 'production') {
-    return res.status(404).json({ error: 'Not found' });
+  try {
+    if (!devLoginEnabled()) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const telegramId = req.query.tid;
+    if (!telegramId) {
+      return res.status(400).json({ error: 'Pass ?tid=<your_telegram_id>' });
+    }
+    const token = issueSession(telegramId);
+    setSessionCookie(res, token);
+    res.redirect('/dashboard.html');
+  } catch (err) {
+    logger.error('/dev-login failed:', err);
+    res.status(500).json({ error: 'Dev login failed' });
   }
-  const telegramId = req.query.tid;
-  if (!telegramId) {
-    return res.status(400).json({ error: 'Pass ?tid=<your_telegram_id>' });
-  }
-  const token = issueSession(telegramId);
-  setSessionCookie(res, token);
-  res.redirect('/dashboard.html');
 });
 
 // --- Helper: resolve internal user row from the session -------------------

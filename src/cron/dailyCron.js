@@ -57,8 +57,7 @@ class DailyCron {
         if (this.processingUsers.has(user.telegram_id)) continue;
 
         const userTimezone = user.timezone || 'UTC';
-        const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-        const userToday = userNow.toISOString().split('T')[0];
+        const userToday = timezoneUtils.getLocalDateString(userTimezone);
 
         // FIX: Check both the date flag AND whether tasks actually exist
         if (user.last_tasks_sent_date === userToday) {
@@ -75,8 +74,7 @@ class DailyCron {
 
         if (user.start_preference === 'tomorrow' && !user.last_tasks_sent_date) {
           if (user.created_at) {
-            const createdInUserTz = timezoneUtils.getCurrentTimeInZone(userTimezone, new Date(user.created_at));
-            const createdDate = createdInUserTz.toISOString().split('T')[0];
+            const createdDate = timezoneUtils.getLocalDateString(userTimezone, new Date(user.created_at));
             if (createdDate === userToday) continue;
           }
         }
@@ -107,8 +105,7 @@ class DailyCron {
   // ─── FIXED: Only marks sent after confirmed success ────────────────────────
   async processEligibleUser(user) {
     const userTimezone = user.timezone || 'UTC';
-    const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-    const userToday = userNow.toISOString().split('T')[0];
+    const userToday = timezoneUtils.getLocalDateString(userTimezone);
 
     if (this.processingUsers.has(user.telegram_id)) {
       logger.warn(`[processEligibleUser] User ${user.telegram_id} already being processed, skipping`);
@@ -183,8 +180,7 @@ class DailyCron {
       }
 
       const userTimezone = user.timezone || 'UTC';
-      const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-      const userToday = userNow.toISOString().split('T')[0];
+      const userToday = timezoneUtils.getLocalDateString(userTimezone);
 
       // FIX: Verify tasks actually exist before skipping
       if (user.last_tasks_sent_date === userToday) {
@@ -224,12 +220,13 @@ class DailyCron {
     }
 
     try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
+      // "Yesterday" in the USER's timezone — server-clock yesterday can be
+      // off by a day for users far from the server's zone.
+      const yesterdayStr = timezoneUtils.getLocalDateStringDaysAgo(user.timezone || 'UTC', 1);
 
       const yesterdayTasks = await taskQueries.getDailyTasks(
         user.id,
-        yesterday.toISOString().split('T')[0]
+        yesterdayStr
       );
 
       const completedYesterday = yesterdayTasks.filter(t => t.status === 'completed').length;
@@ -257,7 +254,7 @@ class DailyCron {
 
       if (user.task_mode === 'ai') {
         const gateTz = user.timezone || 'UTC';
-        const gateToday = timezoneUtils.getCurrentTimeInZone(gateTz).toISOString().split('T')[0];
+        const gateToday = timezoneUtils.getLocalDateString(gateTz);
         const pendingOld = await taskQueries.getPendingTasksBefore(user.id, gateToday);
         if (pendingOld.length > 0) {
           logger.info(`[processUser] User ${user.telegram_id} has ${pendingOld.length} pending old tasks — asking skip/keep instead of generating`);
@@ -284,6 +281,7 @@ logger.info(`[processUser] Tasks sent successfully`);
 
       await checkinQueries.createCheckin(user.id, {
         type: 'daily',
+        date: timezoneUtils.getLocalDateString(user.timezone || 'UTC'),
         response: `Tasks generated: ${tasks.length}`,
       });
 
@@ -363,9 +361,7 @@ logger.info(`[processUser] Tasks sent successfully`);
       const taskIntro = personalityService.getTaskIntro(user.personality_type);
       // Re-send yesterday's still-pending tasks with action buttons
       const userTz = user.timezone || 'UTC';
-      const yesterdayInTz = timezoneUtils.getCurrentTimeInZone(userTz);
-      yesterdayInTz.setDate(yesterdayInTz.getDate() - 1);
-      const yesterdayStr = yesterdayInTz.toISOString().split('T')[0];
+      const yesterdayStr = timezoneUtils.getLocalDateStringDaysAgo(userTz, 1);
       const yesterdayTasks = await taskQueries.getDailyTasks(user.id, yesterdayStr);
       const pendingYesterday = yesterdayTasks.filter(t => t.status === 'pending');
 
@@ -468,8 +464,7 @@ logger.info(`[processUser] Tasks sent successfully`);
 
     try {
       const userTimezone = user.timezone || 'UTC';
-      const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-      const userToday = userNow.toISOString().split('T')[0];
+      const userToday = timezoneUtils.getLocalDateString(userTimezone);
 
       if (user.last_morning_question_date === userToday) return;
 
