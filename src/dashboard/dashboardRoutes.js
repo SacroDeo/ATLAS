@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 
 const userQueries = require('../database/queries/userQueries');
 const taskQueries = require('../database/queries/taskQueries');
+const timezoneUtils = require('../utils/timezoneUtils');
 
 const {
   verifyTelegramLogin,
@@ -17,8 +18,16 @@ const {
   clearSessionCookie,
   requireAuth,
 } = require('./telegramAuth');
+const { rateLimit } = require('./rateLimit');
 
 const router = express.Router();
+
+// Auth endpoints do crypto + DB work per hit — keep them tight.
+// Data endpoints get a looser burst allowance.
+const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, name: 'auth' });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, name: 'api' });
+router.use('/auth', authLimiter);
+router.use(apiLimiter);
 
 // --- Auth ------------------------------------------------------------------
 
@@ -30,12 +39,17 @@ async function handleLogin(req, res) {
   try {
     const user = verifyTelegramLogin(payload);
 
-    // Ensure the user exists in our DB (they normally will, from the bot).
-    await userQueries.createUser(user.id, {
-      username: user.username,
-      first_name: user.first_name,
-      last_name: user.last_name,
-    });
+    // Only ensure the row EXISTS — don't bump last_active (a dashboard view
+    // isn't goal activity; it was suppressing inactivity re-engagement) and
+    // don't overwrite profile fields the bot owns.
+    const existing = await userQueries.getUserByTelegramId(user.id);
+    if (!existing) {
+      await userQueries.createUser(user.id, {
+        username: user.username,
+        first_name: user.first_name,
+        last_name: user.last_name,
+      });
+    }
 
     const token = issueSession(user.id);
     setSessionCookie(res, token);
@@ -110,10 +124,10 @@ async function loadUser(req, res) {
   return user;
 }
 
-function isoDaysAgo(days) {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+function isoDaysAgo(days, timezone) {
+  // Dates in the USER's timezone — the bot assigns tasks per-user-local-day,
+  // so UTC dates here made "today/tomorrow" disagree with the bot near midnight.
+  return timezoneUtils.getLocalDateStringDaysAgo(timezone || 'UTC', days);
 }
 
 // --- Data endpoints (all authenticated) -----------------------------------
@@ -146,8 +160,8 @@ router.get('/stats', requireAuth, async (req, res) => {
     if (!user) return;
 
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
-    const start = isoDaysAgo(days);
-    const end = new Date().toISOString().split('T')[0];
+    const start = isoDaysAgo(days, user.timezone);
+    const end = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
     const stats = await taskQueries.getCompletionStats(user.id, start, end);
     res.json({ windowDays: days, ...stats });
@@ -164,15 +178,17 @@ router.get('/progress', requireAuth, async (req, res) => {
     if (!user) return;
 
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 90);
-    const start = isoDaysAgo(days - 1);
-    const end = new Date().toISOString().split('T')[0];
+    const tz = user.timezone;
+    const start = isoDaysAgo(days - 1, tz);
+    const end = timezoneUtils.getLocalDateString(tz || 'UTC');
 
     const tasks = await taskQueries.getTasksInRange(user.id, start, end);
 
     // Bucket by assigned_date.
     const byDate = {};
     for (let i = 0; i < days; i++) {
-      byDate[isoDaysAgo(days - 1 - i)] = { date: isoDaysAgo(days - 1 - i), completed: 0, total: 0 };
+      const d = isoDaysAgo(days - 1 - i, tz);
+      byDate[d] = { date: d, completed: 0, total: 0 };
     }
     for (const t of tasks) {
       const bucket = byDate[t.assigned_date];
@@ -194,7 +210,10 @@ router.get('/tasks/today', requireAuth, async (req, res) => {
     const user = await loadUser(req, res);
     if (!user) return;
 
-    const tasks = await taskQueries.getDailyTasks(user.id);
+    const tasks = await taskQueries.getDailyTasks(
+      user.id,
+      timezoneUtils.getLocalDateString(user.timezone || 'UTC')
+    );
     res.json({
       tasks: tasks.map((t) => ({
         id: t.id,
@@ -219,8 +238,7 @@ router.get('/tasks/tomorrow', requireAuth, async (req, res) => {
     const user = await loadUser(req, res);
     if (!user) return;
 
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-      .toISOString().split('T')[0];
+    const tomorrow = isoDaysAgo(-1, user.timezone); // tomorrow in the USER's timezone
     const tasks = await taskQueries.getDailyTasks(user.id, tomorrow);
     res.json({
       date: tomorrow,

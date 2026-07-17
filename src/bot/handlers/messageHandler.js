@@ -170,7 +170,7 @@ class MessageHandler {
 
       // ── PRIORITY 6: Life struggle, progressive, morning question ──────────
       const userTimezone = user.timezone || 'UTC';
-      const userTodayDate = timezoneUtils.getCurrentTimeInZone(userTimezone).toISOString().split('T')[0];
+      const userTodayDate = timezoneUtils.getLocalDateString(userTimezone);
       
       const isActionMessage = (t) => {
         const l = t.toLowerCase().trim();
@@ -188,18 +188,25 @@ class MessageHandler {
         );
       };
 
-      // NEW
-if (user.onboarding_completed && !user.life_struggle && !isActionMessage(text)) {
-  const freshUser = await userQueries.getUserByTelegramId(telegramId);
-  if (freshUser && !freshUser.life_struggle) {
-    await this.onboardingFlow._handleLifeStruggleAnswer(chatId, telegramId, text, freshUser);
-    return;
+      // Life-struggle answer capture — ONLY when the question was actually
+      // asked (awaiting flag), not merely because the field is empty. Without
+      // the gate, any casual text ("thanks!") became the user's life struggle.
+      if (user.onboarding_completed && user.awaiting_life_struggle && !user.life_struggle && !isActionMessage(text)) {
+        const freshUser = await userQueries.getUserByTelegramId(telegramId);
+        if (freshUser && freshUser.awaiting_life_struggle && !freshUser.life_struggle) {
+          await this.onboardingFlow._handleLifeStruggleAnswer(chatId, telegramId, text, freshUser);
+          return;
   }
 }
 
       if ((user.progressive_onboarding_step || 0) > 0 && this.callbackHandler) {
-        const consumed = await this.callbackHandler.handleProgressiveAnswer(chatId, telegramId, text, user);
-        if (consumed) return;
+        // Only treat this message as an answer if the question was asked
+        // TODAY — otherwise a random message days later gets swallowed
+        // into a profile field.
+        if (user.last_progressive_question_date === userTodayDate) {
+          const consumed = await this.callbackHandler.handleProgressiveAnswer(chatId, telegramId, text, user);
+          if (consumed) return;
+        }
       }
 
       // Morning question atomic update
@@ -985,6 +992,10 @@ Return ONLY valid JSON:
   }
 
   async handleCommand(chatId, telegramId, command, user) {
+    // Normalize "/start@AtlasGrowbot" (group syntax) and "/today extra args"
+    // to the bare command — exact-match switching treated them as unknown.
+    command = String(command).trim().split(/\s+/)[0].split('@')[0].toLowerCase();
+
     const commandsRequiringTaskMode = ['/today', '/progress', '/stats', '/review'];
     if (!user.task_mode && commandsRequiringTaskMode.includes(command)) {
       await telegramClient.sendMessage(
@@ -1068,7 +1079,17 @@ Return ONLY valid JSON:
 
   async showTodayTasks(chatId, user) {
     const tasks = await taskQueries.getDailyTasks(user.id);
-    if (tasks.length === 0) return;
+    if (tasks.length === 0) {
+      // Silent no-reply here made the bot look dead.
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        user.task_mode === 'manual'
+          ? '📭 No tasks yet today. Say "add task <what you want to do>" to add one.'
+          : '📭 No tasks yet today. Say "generate tasks" and I\'ll build today\'s plan.'
+      );
+      return;
+    }
     await telegramClient.sendMessage(
       this.bot,
       chatId,

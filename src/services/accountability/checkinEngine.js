@@ -85,10 +85,10 @@ const checkinEngine = {
       const type = this._selectType(snapshot, period);
       const inactivityDays = Math.floor(snapshot.inactivityHours / 24);
 
-      // ── Use AI for dead user revival ──
+      // ── Use AI for dead user revival and burnout ──
       if (
         inactivityDays >= AI_TRIGGER.INACTIVITY_DAYS_FOR_REVIVAL ||
-        (type === 'burnoutRecovery' && AI_TRIGGER.BURNOUT_RECOVERY)
+        (type === 'burnoutPrevention' && AI_TRIGGER.BURNOUT_RECOVERY)
       ) {
         const text = await this._generateAIMessage(user, snapshot, type);
         return { text, usedAI: true, type };

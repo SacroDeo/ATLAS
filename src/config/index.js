@@ -17,16 +17,16 @@ serviceKey: process.env.SUPABASE_SERVICE_KEY,
 ai: {
 groq: {
 apiKey: process.env.GROQ_API_KEY,
-model: 'llama-3.3-70b-versatile',
+model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
 },
 gemini: {
 apiKey: process.env.GEMINI_API_KEY,
-model: 'gemini-2.0-flash'
-,
+model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
 },
 together: {
 apiKey: process.env.TOGETHER_API_KEY,
-model: 'meta-llama/Llama-3-70b-chat-hf',
+// Old Llama-3-70b-chat-hf endpoint is retired on Together
+model: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
 enabled: Boolean(process.env.TOGETHER_API_KEY),
 },
 defaultProvider: 'groq',

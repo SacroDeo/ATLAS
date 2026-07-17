@@ -258,6 +258,7 @@ Return ONLY valid JSON, no extra text:
   "payload": {
     "description": null,
     "task_number": null,
+    "new_title": null,
     "target": null,
     "goal": null,
     "focus_area": null

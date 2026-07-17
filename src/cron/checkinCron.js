@@ -72,6 +72,9 @@ class CheckinCron {
           await this._processUser(user, period);
         } catch (err) {
           logger.error(`[CheckinCron] Failed for user ${user.telegram_id}:`, err);
+          if (await userQueries.deactivateIfUnreachable(user.id, err)) {
+            logger.info(`[CheckinCron] User ${user.telegram_id} unreachable — marked inactive`);
+          }
         }
       }
     } catch (err) {

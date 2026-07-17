@@ -352,8 +352,29 @@ async deactivateActiveTasks(userId, date = null) {
         logger.info(`[createTasksIfNotExists] Lock held and tasks exist for ${userId} on ${date}`);
         return { inserted: false, tasks: existing };
       }
-      // Stale lock — delete it and retry
-      logger.warn(`[createTasksIfNotExists] Stale lock detected for ${userId} on ${date} — clearing and retrying`);
+
+      // No tasks yet — the holder may still be MID-GENERATION (AI calls take
+      // ~10-30s). Only treat the lock as stale once it's genuinely old;
+      // clearing a live lock made both callers insert duplicate task sets.
+      const { data: lockRow } = await supabase
+        .from('task_generation_locks')
+        .select('created_at')
+        .eq('user_id', userId)
+        .eq('assigned_date', date)
+        .maybeSingle();
+
+      const lockAgeMs = lockRow
+        ? Date.now() - new Date(lockRow.created_at).getTime()
+        : Infinity;
+      const STALE_AFTER_MS = 3 * 60 * 1000;
+
+      if (lockAgeMs < STALE_AFTER_MS) {
+        logger.info(`[createTasksIfNotExists] Lock held ${Math.round(lockAgeMs / 1000)}s for ${userId} on ${date} — generation in progress, backing off`);
+        return { inserted: false, tasks: [] };
+      }
+
+      // Genuinely stale (crashed mid-generation) — delete it and retry
+      logger.warn(`[createTasksIfNotExists] Stale lock (${Math.round(lockAgeMs / 1000)}s) for ${userId} on ${date} — clearing and retrying`);
       await supabase
         .from('task_generation_locks')
         .delete()
@@ -364,7 +385,13 @@ async deactivateActiveTasks(userId, date = null) {
         .from('task_generation_locks')
         .insert({ user_id: userId, assigned_date: date });
 
-      if (retryLockError) throw retryLockError;
+      if (retryLockError) {
+        // Someone else re-acquired first — yield to them.
+        if (retryLockError.code === '23505') {
+          return { inserted: false, tasks: await this.getDailyTasks(userId, date) };
+        }
+        throw retryLockError;
+      }
     } else {
       throw lockError;
     }

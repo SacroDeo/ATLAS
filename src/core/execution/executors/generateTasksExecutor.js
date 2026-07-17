@@ -109,6 +109,26 @@ class GenerateTasksExecutor {
         await taskQueries.clearPendingForRegeneration(user.id, today);
       }
 
+      // If the daily cron is mid-generation for this user (fresh lock, no
+      // tasks yet), back off instead of racing it into duplicate task sets.
+      const { supabase } = require('../../../config/supabase');
+      const { data: lockRow } = await supabase
+        .from('task_generation_locks')
+        .select('created_at')
+        .eq('user_id', user.id)
+        .eq('assigned_date', today)
+        .maybeSingle();
+      if (lockRow) {
+        const lockAgeMs = Date.now() - new Date(lockRow.created_at).getTime();
+        const existingToday = await taskQueries.getDailyTasks(user.id, today);
+        if (lockAgeMs < 3 * 60 * 1000 && existingToday.length === 0) {
+          return {
+            success: false,
+            message: '⏳ Your daily tasks are being generated right now — they\'ll arrive in a moment!'
+          };
+        }
+      }
+
       const savedTasks = [];
       const failedTasks = [];
       for (const task of uniqueTasks) {

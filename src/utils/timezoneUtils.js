@@ -194,10 +194,13 @@ const timezoneUtils = {
   },
 
  shouldSendTasksNow(user) {
-  if (!user.preferred_time || !user.timezone) return false;
+  // Sensible defaults instead of silently never delivering: users who
+  // somehow finished onboarding without these fields get 08:00 UTC.
+  const timezone = user.timezone || 'UTC';
+  const preferredTime = user.preferred_time || '08:00';
 
-  const now = this.getCurrentTimeInZone(user.timezone);
-  const timePart = (user.preferred_time || '09:00').substring(0, 5);
+  const now = this.getCurrentTimeInZone(timezone);
+  const timePart = String(preferredTime).substring(0, 5);
   const [prefHour, prefMin] = timePart.split(':').map(Number);
 
   const nowHour = now.getHours();

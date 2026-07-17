@@ -238,17 +238,17 @@ return savedTasks;
       return savedTasks;
     } catch (error) {
       logger.error(`Failed to save fallback tasks for user ${user.telegram_id}:`, error.message);
-      return fallbackTasks.map((task, index) => ({
-        ...task,
-        id: `fallback_${Date.now()}_${index}`,
-        user_id: user.id,
-        assigned_date: new Date().toISOString().split('T')[0],
-        due_date: new Date().toISOString().split('T')[0],
-        status: 'pending',
-        is_daily: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
+      // Do NOT fabricate fake task rows here. The old code returned tasks
+      // with id "fallback_<ts>" — the cron then attached Done/Skip buttons
+      // whose callbacks crashed on the non-UUID id ("Something went wrong"
+      // on every tap). The DB may already have today's rows (unique
+      // constraint violation) — reuse them; otherwise return nothing and
+      // let the caller's no-tasks path handle it.
+      const existing = await taskQueries.getDailyTasks(
+        user.id,
+        new Date().toISOString().split('T')[0]
+      );
+      return existing || [];
     }
   }
 }

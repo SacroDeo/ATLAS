@@ -34,10 +34,28 @@ const userQueries = {
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('onboarding_completed', true);
+      .eq('onboarding_completed', true)
+      .eq('is_active', true); // blocked/deactivated users were processed forever
 
     if (error) throw error;
     return data || [];
+  },
+
+  /**
+   * Mark a user inactive when Telegram tells us they're unreachable
+   * (blocked the bot / deleted their account). Returns true if deactivated.
+   */
+  async deactivateIfUnreachable(userId, err) {
+    const desc = (err && (err.description || err.message)) || '';
+    if (!desc.includes('bot was blocked') && !desc.includes('user is deactivated') && !desc.includes('chat not found')) {
+      return false;
+    }
+    const { error } = await supabase
+      .from('users')
+      .update({ is_active: false })
+      .eq('id', userId);
+    if (error) throw error;
+    return true;
   },
 
   async updateOnboardingState(telegramId, state, data = {}) {

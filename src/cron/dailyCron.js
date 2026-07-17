@@ -67,7 +67,18 @@ class DailyCron {
           }
           const pendingOld = await taskQueries.getPendingTasksBefore(user.id, userToday);
           if (pendingOld.length > 0) {
-            continue; // Waiting for user's skip/keep decision — don't re-ask
+            // Waiting for user's skip/keep decision — don't re-ask. But a
+            // frozen streak shouldn't survive the wait: no delivery means
+            // processUser never evaluates yesterday, so an abandoned user
+            // kept their streak forever. Reset once they're 2+ days idle.
+            if ((user.current_streak || 0) > 0) {
+              const twoDaysAgo = timezoneUtils.getLocalDateStringDaysAgo(userTimezone, 2);
+              if ((user.last_tasks_sent_date || '') <= twoDaysAgo) {
+                logger.info(`[checkAndSendTasks] User ${user.telegram_id} idle on pending-decision 2+ days — resetting streak`);
+                await userQueries.resetStreak(user.id);
+              }
+            }
+            continue;
           }
           logger.info(`[checkAndSendTasks] User ${user.telegram_id} has sent-date but no tasks — will retry`);
         }
@@ -143,6 +154,9 @@ class DailyCron {
       }
     } catch (error) {
       logger.error(`[processEligibleUser] Failed for user ${user.telegram_id}:`, error);
+      if (await userQueries.deactivateIfUnreachable(user.id, error)) {
+        logger.info(`[processEligibleUser] User ${user.telegram_id} unreachable (blocked/deleted) — marked inactive`);
+      }
     } finally {
       this.processingUsers.delete(user.telegram_id);
     }
@@ -297,10 +311,19 @@ logger.info(`[processUser] Tasks sent successfully`);
       return { success: true, tasksSent: tasks.length, error: null };
     } catch (error) {
       logger.error(`[processUser] Failed to process user ${user.telegram_id}:`, error);
-      try {
-        await this.sendFallbackTasks(user);
-      } catch (fallbackError) {
-        logger.error(`[processUser] Even fallback tasks failed for ${user.telegram_id}:`, fallbackError);
+      // Send fallback tasks at most ONCE per user per day — the catch-up
+      // window keeps retrying delivery every minute for up to 8h, which
+      // used to re-send this fallback on every attempt.
+      const fbKey = `${user.id}:${timezoneUtils.getLocalDateString(user.timezone || 'UTC')}`;
+      if (!this.fallbackSent) this.fallbackSent = new Set();
+      if (!this.fallbackSent.has(fbKey)) {
+        this.fallbackSent.add(fbKey);
+        if (this.fallbackSent.size > 5000) this.fallbackSent.clear(); // bound memory
+        try {
+          await this.sendFallbackTasks(user);
+        } catch (fallbackError) {
+          logger.error(`[processUser] Even fallback tasks failed for ${user.telegram_id}:`, fallbackError);
+        }
       }
       return { success: false, tasksSent: 0, error: error.message };
     }

@@ -33,9 +33,29 @@ const { weeklyCron } = require('./src/cron/weeklyCron');
 const { checkinCron } = require('./src/cron/checkinCron');
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());
+
+// Security headers (dependency-free helmet-lite)
+app.use((req, res, next) => {
+  res.set('X-Frame-Options', 'DENY'); // no iframing the dashboard
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set(
+    'Content-Security-Policy',
+    // telegram.org: Login Widget script + oauth frame; fonts for the UI;
+    // 'unsafe-inline' needed by the single-file frontend's inline code.
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://telegram.org; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src https://fonts.gstatic.com; " +
+    "img-src 'self' data: https://t.me; " +
+    "frame-src https://oauth.telegram.org; " +
+    "connect-src 'self'"
+  );
+  next();
+});
 
 // Dashboard: API + static frontend
 app.use('/api/dashboard', dashboardRoutes);

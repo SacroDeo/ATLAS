@@ -608,7 +608,15 @@ await telegramClient.sendMessage(
 // nothing needed here — life_struggle column handles state
     } catch (err) {
       logger.error(`Roadmap generation failed for ${telegramId}:`, err);
-      await this._afterRoadmap(chatId, telegramId, data, startingToday, isManual);
+      // Keep the onboarding chain intact: task_mode hasn't been chosen yet
+      // at this point, so jumping to _afterRoadmap sent tasks in a null
+      // mode and skipped the life-struggle + task-mode questions entirely.
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        "⚠️ I couldn't build your full roadmap right now — I'll retry later. Let's finish your setup first."
+      );
+      await this._askLifeStruggle(chatId);
     }
   }
 
@@ -669,6 +677,18 @@ Max 4 words per week focus. Max 12 weeks. No commentary before or after.`
   }
 
   async _askLifeStruggle(chatId) {
+    // Mark that we ASKED — the messageHandler only captures a life-struggle
+    // answer while this flag is set, so casual messages ("thanks!") sent
+    // when the question was never asked don't get saved as an answer.
+    // (chatId === telegram_id in private chats, the only place onboarding runs.)
+    try {
+      const { supabase } = require('../../config/supabase');
+      await supabase.from('users')
+        .update({ awaiting_life_struggle: true })
+        .eq('telegram_id', chatId);
+    } catch (err) {
+      logger.warn('Could not set awaiting_life_struggle flag:', err.message);
+    }
     await telegramClient.sendMessage(
       this.bot,
       chatId,

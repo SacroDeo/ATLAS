@@ -40,24 +40,46 @@ const checkinQueries = {
   },
 
   async getConsecutiveMisses(userId) {
+    // Days in a row (ending yesterday) where the user HAD tasks but
+    // completed none of them. The old version measured days since the last
+    // task DELIVERY, which is ~0 for anyone receiving tasks — so the
+    // "stuck" check-in never fired for exactly the users it was meant for.
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+      .toISOString().split('T')[0];
+
     const { data, error } = await supabase
-      .from('checkins')
-      .select('date')
+      .from('tasks')
+      .select('assigned_date, status')
       .eq('user_id', userId)
-      .eq('checkin_type', 'daily')
-      .order('date', { ascending: false })
-      .limit(1);
+      .gte('assigned_date', since)
+      .order('assigned_date', { ascending: false });
 
     if (error) throw error;
+    if (!data || data.length === 0) return 0;
 
-    if (data.length === 0) return 0;
+    // Group by day → did any task get completed that day?
+    const byDay = new Map();
+    for (const t of data) {
+      const day = byDay.get(t.assigned_date) || { any: false, completed: false };
+      day.any = true;
+      if (t.status === 'completed') day.completed = true;
+      byDay.set(t.assigned_date, day);
+    }
 
-    const lastCheckin = new Date(data[0].date);
-    const today = new Date();
-    const diffTime = Math.abs(today - lastCheckin);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    return diffDays;
+    const today = new Date().toISOString().split('T')[0];
+    let misses = 0;
+    // Walk backwards day by day from yesterday; stop at the first day
+    // with a completion or with no tasks assigned.
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+        .toISOString().split('T')[0];
+      if (d === today) continue;
+      const day = byDay.get(d);
+      if (!day || !day.any) break;
+      if (day.completed) break;
+      misses++;
+    }
+    return misses;
   },
 
   async deleteUserCheckins(userId) {

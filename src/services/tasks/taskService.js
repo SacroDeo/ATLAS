@@ -168,6 +168,13 @@ const todayTasks = await taskQueries.getDailyTasks(userId, today);
         why_it_matters: originalTask.why_it_matters,
         estimated_time: '15-20 minutes',
         difficulty_level: 'easy',
+        // Inherit the original task's day — near midnight the DB's
+        // CURRENT_DATE default could land this on the wrong date, making
+        // the simplified task vanish from today's list.
+        assigned_date: originalTask.assigned_date,
+        due_date: originalTask.assigned_date,
+        is_daily: originalTask.is_daily,
+        is_active: true,
       }]);
 
       return tasks[0];
@@ -184,6 +191,10 @@ const todayTasks = await taskQueries.getDailyTasks(userId, today);
         why_it_matters: originalTask.why_it_matters,
         estimated_time: '15 minutes',
         difficulty_level: 'easy',
+        assigned_date: originalTask.assigned_date,
+        due_date: originalTask.assigned_date,
+        is_daily: originalTask.is_daily,
+        is_active: true,
       }]);
 
       return tasks[0];
