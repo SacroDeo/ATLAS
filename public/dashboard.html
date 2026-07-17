@@ -36,24 +36,13 @@
     overflow-x: hidden;
   }
 
-  /* Ops-room backdrop: aurora glows + faint tactical grid, fixed behind glass */
+  /* Backdrop: two very soft color glows on near-black — quiet, no patterns */
   body::before {
     content: '';
-    position: fixed; inset: 0; z-index: -2;
-    background:
-      radial-gradient(900px 500px at 85% -5%, rgba(94, 234, 212, 0.13), transparent 60%),
-      radial-gradient(800px 600px at -10% 40%, rgba(167, 139, 250, 0.12), transparent 55%),
-      radial-gradient(700px 500px at 60% 110%, rgba(94, 234, 212, 0.07), transparent 60%);
-  }
-  body::after {
-    content: '';
     position: fixed; inset: 0; z-index: -1;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 44px 44px;
-    mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 30%, transparent 75%);
-    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 30%, transparent 75%);
+    background:
+      radial-gradient(1100px 700px at 80% -10%, rgba(94, 234, 212, 0.07), transparent 60%),
+      radial-gradient(900px 700px at 0% 100%, rgba(167, 139, 250, 0.06), transparent 55%);
   }
 
   .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(16px, 4vw, 36px) clamp(14px, 4vw, 24px) 72px; }
