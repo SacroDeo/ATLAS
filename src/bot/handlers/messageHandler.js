@@ -3,7 +3,6 @@
 const memoryService = require('../../services/memory/memoryService');
 const contextBuilder = require('../../core/context/contextBuilder');
 const stateManager = require('../../core/state/stateManager');
-const actionRegistry = require('../../core/actions/actionRegistry');
 const ACTIONS = require('../../core/actions/actionTypes');
 const actionExecutor = require('../../core/execution/actionExecutor');
 const actionPlanner = require('../../core/planner/actionPlanner');
@@ -50,7 +49,11 @@ class MessageHandler {
     if (!this.processingQueue.has(userId)) {
       this.processingQueue.set(userId, Promise.resolve());
     }
-    const queue = this.processingQueue.get(userId).then(() => fn()).catch(() => {});
+    // Errors are logged, not rethrown — a rejection must not poison the
+    // queue chain for the user's subsequent messages.
+    const queue = this.processingQueue.get(userId).then(() => fn()).catch((err) => {
+      logger.error(`[MessageQueue] Handler failed for user ${userId}:`, err);
+    });
     this.processingQueue.set(userId, queue);
     return queue;
   }
@@ -83,20 +86,9 @@ class MessageHandler {
       }
 
       // ── PRIORITY 3: State machine states ──────────────────────────────────
+      // (Dead states removed: 'awaiting_task_generation_confirmation' and
+      // 'confirming_delete_*' were read here but never set anywhere.)
       const currentState = stateManager.get(user.telegram_id);
-      if (currentState === 'awaiting_task_generation_confirmation') {
-        const lower = text.toLowerCase().trim();
-        if (lower === 'yes' || lower === 'generate tasks' || lower === 'yes generate') {
-          stateManager.clear(user.telegram_id);
-          await this.handleConversationalMessage(chatId, 'generate tasks', user);
-          return;
-        }
-        if (lower === 'no' || lower === 'cancel') {
-          stateManager.clear(user.telegram_id);
-          await telegramClient.sendMessage(this.bot, chatId, 'Okay, cancelled.');
-          return;
-        }
-      }
       if (currentState === 'adding_task') {
         await this.handleAddTaskDescription(chatId, text, user);
         return;
@@ -104,25 +96,6 @@ class MessageHandler {
       if (currentState === 'awaiting_timezone_change') {
         stateManager.clear(user.telegram_id);
         await this.handleTimezoneChangeInput(chatId, text, user);
-        return;
-      }
-      if (currentState && currentState.startsWith('confirming_delete_')) {
-        const taskId = currentState.replace('confirming_delete_', '');
-        const lowerText = text.toLowerCase().trim();
-        if (lowerText === 'yes' || lowerText === 'yes delete it' || lowerText === 'delete' || lowerText === 'confirm') {
-          stateManager.clear(user.telegram_id);
-          try {
-            const task = await taskQueries.getTaskById(taskId);
-            await taskQueries.deleteTask(taskId);
-            await telegramClient.sendMessage(this.bot, chatId, `✅ Task "${task.title}" has been deleted.`);
-          } catch (error) {
-            logger.error('Delete confirmation failed:', error);
-            await telegramClient.sendMessage(this.bot, chatId, '❌ Failed to delete. Try again.');
-          }
-        } else {
-          stateManager.clear(user.telegram_id);
-          await telegramClient.sendMessage(this.bot, chatId, '❌ Deletion cancelled. Your task is safe.');
-        }
         return;
       }
 
@@ -336,7 +309,7 @@ class MessageHandler {
       await conversationEngine.clearOldHistory(user.id);
       const context = await contextBuilder.build(user.telegram_id, text);
       const plan = await actionPlanner.plan(context);
-      logger.info(`Planner result: ${JSON.stringify(plan)}`);
+      logger.info(`Planner result: intent=${plan?.intent}, hasPayload=${!!plan?.payload}`);
       const validation = actionValidator.validate(plan);
       if (!validation.valid) {
         logger.error(`Invalid planner output: ${validation.error}`);
@@ -409,7 +382,7 @@ class MessageHandler {
           '✅ Exited task entry mode. What would you like to do?',
           inlineKeyboards.mainMenu()
         );
-        logger.info(`[ManualTaskEntry] User ${user.telegram_id} exited manual mode via keyword: "${normalized}"`);
+        logger.info(`[ManualTaskEntry] User ${user.telegram_id} exited manual mode via exit keyword`);
         return;
       }
 
@@ -460,7 +433,7 @@ class MessageHandler {
         return;
       }
 
-      logger.info(`[ManualTaskEntry] Parsed ${taskTitles.length} tasks for user ${user.telegram_id}: ${taskTitles.join(' | ')}`);
+      logger.info(`[ManualTaskEntry] Parsed ${taskTitles.length} tasks for user ${user.telegram_id}`);
 
       // ── STEP 4: Save tasks using centralized pipeline ─────────────────────
       const savedTasks = await this._createTasksForUser(user, taskTitles);
@@ -936,7 +909,7 @@ Return ONLY valid JSON:
         await telegramMessage.sendSafe(
           this.bot,
           chatId,
-          '⚠️ A task with that name already exists for tomorrow. Try describing it differently.'
+          '⚠️ A task with that name already exists for today. Try describing it differently.'
         );
       } else {
         await telegramMessage.sendSafe(this.bot, chatId, '😅 Had trouble adding that task. Try again!', inlineKeyboards.mainMenu());

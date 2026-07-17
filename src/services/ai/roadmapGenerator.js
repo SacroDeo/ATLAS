@@ -52,7 +52,7 @@ const roadmapGenerator = {
     const goalText   = user.goal || '';
     const domainKnowledge = user.domain_knowledge || 'beginner';
 
-    logger.info(`[RoadmapGenerator] Generating for user ${telegramId}, knowledge=${domainKnowledge}, goal="${goalText}"`);
+    logger.info(`[RoadmapGenerator] Generating for user ${telegramId}, knowledge=${domainKnowledge}, goal length=${(goalText || '').length}`);
 
     // ── Build behavior profile for pacing + difficulty constraints ───────────
     const behaviorProfileBuilder = require('./behaviorProfileBuilder');

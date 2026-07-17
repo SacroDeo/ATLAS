@@ -80,14 +80,12 @@ class DailyTaskGenerator {
         .slice(-5)
         .map(m => m.content);
       const manualTaskHistory = await taskQueries.getRecentManualTaskTitles(user.id, 30);
-      const daysSinceStart = Math.floor(
-        (Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24)
-      );
-      const roadmapPhase = daysSinceStart < 30
-        ? 'Month 1 — Foundations'
-        : daysSinceStart < 60
-        ? 'Month 2 — Core Skills'
-        : 'Month 3 — Practice & Application';
+      // Use the REAL roadmap phase — the old hardcoded "Month 1/2/3" label
+      // contradicted the actual phase constraints sent alongside it.
+      const realPhase = roadmapUtils.getCurrentPhase(user);
+      const roadmapPhase = realPhase
+        ? `Phase ${realPhase.phase_index} — ${realPhase.phase_name}`
+        : 'No roadmap yet — general foundations';
 
       const structuredContext = {
         active_goal: user.goal,

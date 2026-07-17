@@ -458,9 +458,11 @@ async function loadToday() {
   }
   const done = tasks.filter(t => t.status === 'completed').length;
   hint.textContent = done + ' of ' + tasks.length + ' completed';
+  // Whitelist status → class so a DB value can never inject attribute content
+  const statusClass = s => ['completed','pending','skipped','too_hard'].includes(s) ? s : 'pending';
   list.innerHTML = tasks.map(t => `
     <div class="task">
-      <div class="dot ${t.status}"></div>
+      <div class="dot ${statusClass(t.status)}"></div>
       <div class="task-body">
         <div class="task-title ${t.status === 'completed' ? 'done' : ''}">${escapeHtml(t.title)}
           ${t.difficulty ? '<span class="badge">' + escapeHtml(t.difficulty) + '</span>' : ''}</div>

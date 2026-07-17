@@ -144,9 +144,8 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
-app.get('/webhook', (req, res) => {
-  res.status(200).json({ bot_active: true, cron_jobs: { daily: dailyCron.running, weekly: weeklyCron.running } });
-});
+// (Removed the unauthenticated /webhook status endpoint — misleading name,
+// leaked internal cron state. /health covers liveness checks.)
 
 app.use((err, req, res, next) => {
   logger.error('Express error:', err);

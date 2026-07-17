@@ -19,6 +19,12 @@ class GroqProvider {
     this.retryDelay = 1000;
   }
 
+  // aiOrchestrator skips providers whose isConfigured() is false — without
+  // this, an unconfigured Groq stayed in the rotation and threw on every call.
+  isConfigured() {
+    return !!this.client;
+  }
+
   async generateCompletion(messages, options = {}) {
     if (!this.client) {
       throw new AppError('Groq provider not configured', 500);

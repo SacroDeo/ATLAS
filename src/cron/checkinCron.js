@@ -164,11 +164,10 @@ class CheckinCron {
     // Evening with everything done → celebrate, don't interrogate.
     if (period === 'evening' && tasks.length > 0 && pending.length === 0) {
       const name = user.first_name || 'there';
-      const streak = (user.current_streak || 0) + 1;
       return (
         `🌙 All ${tasks.length} tasks done today, ${name} — clean sweep.\n\n` +
-        `🔥 That puts your streak at ${streak} day${streak === 1 ? '' : 's'}. ` +
-        `Rest well — tomorrow's plan arrives in the morning.`
+        `🔥 Your streak updates in the morning — keep this rhythm going. ` +
+        `Rest well — tomorrow's plan arrives with the sunrise.`
       );
     }
 

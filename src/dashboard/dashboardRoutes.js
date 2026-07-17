@@ -218,11 +218,9 @@ router.get('/tasks/today', requireAuth, async (req, res) => {
       tasks: tasks.map((t) => ({
         id: t.id,
         title: t.title,
-        description: t.description,
         status: t.status,
         difficulty: t.difficulty_level,
         estimatedTime: t.estimated_time,
-        whyItMatters: t.why_it_matters,
       })),
     });
   } catch (err) {

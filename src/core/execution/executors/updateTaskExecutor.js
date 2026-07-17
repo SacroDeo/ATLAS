@@ -30,7 +30,8 @@ const today = userNow.toISOString().split('T')[0];    const tasks = await taskQu
     const target = tasks[index];
     await taskQueries.updateTask(target.id, {
       title: new_title.slice(0, 120),
-      description: new_title.slice(0, 120),
+      // Full text goes in the description; title gets the truncated form.
+      description: new_title,
       updated_at: new Date().toISOString(),
     });
 

@@ -89,6 +89,13 @@ async handleCallback(callbackQuery) {
 
   const data = callbackQuery.data || '';
 
+  // Dedup: Telegram redelivers callback queries on slow handlers; the TTL
+  // map existed but was never populated, so double-taps double-executed.
+  if (callbackQuery.id) {
+    if (this.processedCallbacks.has(callbackQuery.id)) return;
+    this.processedCallbacks.set(callbackQuery.id, { timestamp: Date.now() });
+  }
+
   try {
 
     // ALWAYS answer callback immediately
@@ -286,125 +293,11 @@ async handleChangeTimeConfirm(
   }
 }
 
-    async _handleMenuAction(callbackQuery, action) {
-    const { chatId, messageId, user } = await this._getCallbackContext(callbackQuery);
-
-    switch (action) {
-      case 'progress':
-        return this.showProgress(chatId, messageId, user);
-      case 'stats':
-        return this.showStats(chatId, messageId, user);
-      case 'goal':
-        return this.showGoal(chatId, messageId, user);
-      case 'review':
-        return this.showReview(chatId, messageId, user);
-      case 'help':
-        return this.showHelp(chatId, messageId);
-      default:
-        logger.warn(`[menu] Unknown menu action: ${action}`);
-    }
-  }
-
-  // FIX 5: answerCallbackQuery at START, callbackQuery passed as param
-  async handleTasksNow(chatId, messageId, user, callbackQuery) {
-    await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
-
-    try {
-      const userTimezone = user.timezone || 'UTC';
-      const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-      const userToday = userNow.toISOString().split('T')[0];
-
-      if (user.last_tasks_sent_date === userToday) {
-        await telegramClient.editMessage(
-          this.bot,
-          chatId,
-          messageId,
-          '✅ You already have your tasks for today\\!',
-          { parse_mode: 'MarkdownV2' }
-        );
-        return;
-      }
-
-      await telegramClient.editMessage(
-        this.bot,
-        chatId,
-        messageId,
-        '🚀 Generating your tasks right now\\.\\.\\.',
-        { parse_mode: 'MarkdownV2' }
-      );
-
-      await dailyCron.sendTasksImmediately(user.telegram_id);
-
-      if (user.start_preference === 'manual') {
-        await userQueries.updateOnboardingState(user.telegram_id, 'completed', {
-          start_preference: 'today',
-        });
-      }
-
-      await telegramClient.editMessage(
-        this.bot,
-        chatId,
-        messageId,
-        '✨ Your tasks are ready\\! Check above to start working on them\\.',
-        { parse_mode: 'MarkdownV2' }
-      );
-    } catch (error) {
-      logger.error(`Tasks now failed for ${user.telegram_id}:`, error);
-      await telegramClient.editMessage(
-        this.bot,
-        chatId,
-        messageId,
-        '❌ Failed to generate tasks. Please try again.'
-      );
-    }
-  }
-
-  async handleTasksScheduled(chatId, messageId) {
-    await telegramClient.editMessage(
-      this.bot,
-      chatId,
-      messageId,
-      '✅ Tasks will arrive at your scheduled time\\.', 
-      { parse_mode: 'MarkdownV2' }
-    );
-  }
-
-async handleDeleteConfirm(
-  callbackQuery,
-  taskId
-) {
-
-  const { chatId, messageId } =
-    await this._getCallbackContext(
-      callbackQuery
-    );
-
-  const task =
-    await taskQueries.getTaskById(taskId);
-
-  if (!task) {
-    return;
-  }
-
-  await taskQueries.deleteTask(taskId);
-
-  await telegramClient.editMessage(
-    this.bot,
-    chatId,
-    messageId,
-    `✅ Task "${task.title}" removed.`
-  );
-}
-
-
-  async handleDeleteCancel(chatId, messageId) {
-    await telegramClient.editMessage(
-      this.bot,
-      chatId,
-      messageId,
-      'Deletion cancelled.'
-    );
-  }
+// (Dead handlers removed: _handleMenuAction, handleTasksNow, handleTasksScheduled,
+// handleDeleteCancel, handleDeleteConfirm — no callback ever routed to them.
+// Menu actions route through callbacks/menuCallbacks.js; deletion flows through
+// the ownership-scoped executors; handleDeleteConfirm additionally hard-deleted
+// tasks WITHOUT an ownership check.)
 
   // FIX 5: answerCallbackQuery moved to START
 async handleDone(callbackQuery, taskId) {

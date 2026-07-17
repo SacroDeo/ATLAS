@@ -265,19 +265,6 @@ async deactivateActiveTasks(userId, date = null) {
   },
 
 
-   async skipPendingTasksBefore(userId, beforeDate) {
-    const { error } = await supabase
-      .from('tasks')
-      .update({ status: 'skipped', updated_at: new Date().toISOString() })
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .eq('status', 'pending')
-      .lte('assigned_date', beforeDate); // lte = includes today's pending too
-    if (error) throw error;
-    return true;
-  },
-
-
   async deleteUserTasks(userId) {
     const { error } = await supabase
       .from('tasks')

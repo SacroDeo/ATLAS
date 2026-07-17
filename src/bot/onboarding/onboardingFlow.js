@@ -217,6 +217,20 @@ class OnboardingFlow {
   }
 
   async _processDeadline(chatId, telegramId, text, userState) {
+    // Light validation: a timeframe should mention a duration or a date-ish
+    // word — "idk" / "whenever" used to become part of the goal verbatim.
+    const looksLikeTimeframe =
+      /\d/.test(text) ||
+      /\b(week|month|year|day|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|summer|winter|asap|end of)\w*/i.test(text);
+    if (!looksLikeTimeframe) {
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        'Give me a rough timeframe — like "3 months", "by December", or "6 weeks".'
+      );
+      return;
+    }
+
     const fullGoal = `${userState.data.goal_partial} — ${text.trim()}`;
     userState.data.goal = fullGoal;
     userState.state     = this.states.DOMAIN_KNOWLEDGE;
@@ -298,10 +312,12 @@ class OnboardingFlow {
   }
 
   async _processAvailableTime(chatId, telegramId, text, userState) {
-    const hasTimeKeyword = /\b(hour|hours|minute|minutes|min|mins)\b/i.test(text);
-    const hasNumber      = /\d+/.test(text);
+    const hasTimeKeyword = /\b(hour|hours|hr|hrs|minute|minutes|min|mins)\b/i.test(text);
+    // Accept written amounts too — "half an hour", "an hour", "one hour"
+    const hasAmount = /\d+/.test(text) ||
+      /\b(half|quarter|an?|one|two|three|four|five|couple|few)\b/i.test(text);
 
-    if (!hasTimeKeyword || !hasNumber) {
+    if (!hasTimeKeyword || !hasAmount) {
       await telegramClient.sendMessage(this.bot, chatId,
         'Include a number with hours or minutes — e.g. "1 hour", "30 minutes", "2 hours on weekdays".'
       );
