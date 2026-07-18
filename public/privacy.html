@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>ATLAS · Privacy Policy</title>
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #060a13;
+    --glass: rgba(255, 255, 255, 0.045);
+    --edge: rgba(255, 255, 255, 0.09);
+    --edge-bright: rgba(255, 255, 255, 0.16);
+    --text: #eef2fa;
+    --muted: #93a0b8;
+    --teal: #5eead4;
+    --violet: #a78bfa;
+    --r: 20px;
+    --font-body: 'Space Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--font-body); background: var(--ink); color: var(--text);
+    min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  /* Backdrop: two very soft color glows on near-black — quiet, no patterns */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(1100px 700px at 80% -10%, rgba(94, 234, 212, 0.07), transparent 60%),
+      radial-gradient(900px 700px at 0% 100%, rgba(167, 139, 250, 0.06), transparent 55%);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: clamp(24px, 5vw, 48px) clamp(16px, 4vw, 24px) 72px; }
+  .glass {
+    background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r);
+    backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 20px 50px -20px rgba(0, 0, 0, 0.6);
+  }
+  .card { padding: clamp(24px, 5vw, 44px); }
+  .back {
+    display: inline-block; margin-bottom: 22px; color: var(--muted);
+    font-family: var(--font-mono); font-size: 12px; text-decoration: none;
+  }
+  .back:hover { color: var(--teal); }
+  h1 { font-size: clamp(24px, 6vw, 32px); letter-spacing: -0.02em; margin-bottom: 6px; }
+  .updated { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-bottom: 30px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; letter-spacing: -0.01em; color: var(--teal); }
+  p, li { color: var(--muted); font-size: 14.5px; line-height: 1.7; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 6px; }
+  b { color: var(--text); font-weight: 600; }
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">&larr; back to ATLAS</a>
+  <div class="glass card">
+    <h1>Privacy Policy</h1>
+    <div class="updated">Last updated: 18 July 2026</div>
+
+    <p>ATLAS is a personal goal assistant that works through a Telegram bot
+    (@AtlasGrowbot) and a web dashboard. This page explains, in plain words,
+    what data ATLAS stores and why. ATLAS is run by an individual developer,
+    not a company.</p>
+
+    <h2>What we collect</h2>
+    <ul>
+      <li><b>Telegram basics</b> — your Telegram ID, first name, and username,
+      sent to us by Telegram when you message the bot or use Telegram login.
+      We never see your phone number or password.</li>
+      <li><b>What you tell the bot</b> — your goal, your daily-time preferences,
+      your task check-ins, and chat messages you send to the bot. This is the
+      whole point of the product: it needs your goal to plan your days.</li>
+      <li><b>Google sign-in (optional)</b> — if you use "Continue with Google",
+      Google shares your email address and account ID with us. We never see
+      your Google password. We use this only to let you log in to the dashboard.</li>
+      <li><b>Progress data</b> — tasks generated for you, which ones you
+      completed or skipped, and your streak.</li>
+    </ul>
+
+    <h2>What we do NOT collect</h2>
+    <ul>
+      <li>No payment information (ATLAS is free).</li>
+      <li>No location data, contacts, or files.</li>
+      <li>No tracking cookies, ads, or analytics scripts on the website.
+      The only cookie we set is your login session.</li>
+    </ul>
+
+    <h2>How your data is used</h2>
+    <ul>
+      <li>To generate your roadmap and daily tasks, we send <b>your goal and
+      task-related messages</b> to AI providers (Groq and Google Gemini) for
+      processing. They process it to produce the response and are not
+      permitted to use free-tier API data to identify you personally.</li>
+      <li>To show your stats on the dashboard.</li>
+      <li>Never sold. Never shared with advertisers. No mailing lists.</li>
+    </ul>
+
+    <h2>Where it's stored</h2>
+    <p>Data is stored in a Supabase (PostgreSQL) database and processed on a
+    Render server. Both are reputable cloud providers with encryption in
+    transit and at rest.</p>
+
+    <h2>Deleting your data</h2>
+    <p>Send <b>/reset</b> to the bot to erase your profile, goal, roadmap, and
+    tasks at any time. For complete removal of everything including your
+    account row, message the bot and ask, or contact the operator on Telegram —
+    it will be deleted manually within a reasonable time.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes materially, the "Last updated" date above changes
+    and significant changes will be announced through the bot.</p>
+
+    <h2>Contact</h2>
+    <p>Questions? Message <a href="https://t.me/AtlasGrowbot">@AtlasGrowbot</a>
+    on Telegram.</p>
+  </div>
+</div>
+</body>
+</html>
