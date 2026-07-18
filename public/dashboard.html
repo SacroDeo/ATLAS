@@ -203,6 +203,7 @@
   .dot.skipped, .dot.too_hard { background: var(--alert); }
   /* Text label so task state is readable, not just a colored dot */
   .tstat {
+    display: inline-block; text-decoration: none; /* don't inherit the title's line-through */
     font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
     padding: 2px 8px; border-radius: 7px; margin-left: 6px; vertical-align: 1px;
     border: 1px solid var(--edge); color: var(--muted); white-space: nowrap;
