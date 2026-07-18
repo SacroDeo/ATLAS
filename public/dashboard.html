@@ -93,6 +93,15 @@
   .gate-card h2 { font-size: clamp(20px, 5vw, 24px); margin-bottom: 10px; letter-spacing: -0.02em; }
   .gate-card p { color: var(--muted); font-size: 14px; margin-bottom: 28px; line-height: 1.55; }
   .gate-widget { display: flex; justify-content: center; min-height: 46px; }
+  /* Placeholder shown while the Telegram widget loads from telegram.org —
+     same size as the rendered button, so nothing pops or shifts. */
+  .tg-skel {
+    width: 220px; height: 40px; border-radius: 20px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
   /* "Continue with Google" — same glass language as the cards. Hidden until
      /config says googleEnabled. */
   .google-btn {
@@ -246,7 +255,7 @@
       <div class="logo">A</div>
       <h2>Welcome to ATLAS</h2>
       <p>Sign in with the same Telegram account you use with the bot to see your progress.</p>
-      <div id="tg-widget" class="gate-widget"></div>
+      <div id="tg-widget" class="gate-widget"><div class="tg-skel" aria-hidden="true"></div></div>
       <div id="gate-or" class="gate-or">or</div>
       <a id="google-btn" class="google-btn" href="/api/dashboard/auth/google">
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -386,6 +395,21 @@ async function showGate() {
       s.setAttribute('data-radius', '10');
       s.setAttribute('data-auth-url', API + '/auth/telegram');
       s.setAttribute('data-request-access', 'write');
+      // Swap the skeleton out only when the widget's iframe is actually in
+      // the DOM — removing it on script load still left a gap for a frame.
+      const skel = mount.querySelector('.tg-skel');
+      const watcher = new MutationObserver(() => {
+        if (mount.querySelector('iframe')) {
+          skel?.remove();
+          watcher.disconnect();
+        }
+      });
+      watcher.observe(mount, { childList: true, subtree: true });
+      s.onerror = () => {
+        skel?.remove();
+        watcher.disconnect();
+        document.getElementById('gate-err').textContent = 'Could not load Telegram login. Refresh to retry.';
+      };
       mount.appendChild(s);
     }
 
@@ -395,6 +419,7 @@ async function showGate() {
       document.getElementById('google-btn').style.display = 'flex';
     }
   } catch (e) {
+    document.querySelector('#tg-widget .tg-skel')?.remove();
     document.getElementById('gate-err').textContent = 'Could not load login. Refresh to retry.';
   }
 }
