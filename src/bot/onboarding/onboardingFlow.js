@@ -66,6 +66,15 @@ class OnboardingFlow {
         return;
       }
 
+      // /reset mid-onboarding used to fall through to "re-ask current step",
+      // which looked like the command was ignored. There's nothing to confirm
+      // or delete yet — just start over cleanly.
+      if (text === '/reset') {
+        await telegramClient.sendMessage(this.bot, chatId, '🔄 Starting fresh!');
+        await this._restartOnboarding(chatId, telegramId);
+        return;
+      }
+
       if (user.onboarding_completed) {
         await telegramClient.sendMessage(this.bot, chatId,
           "You're all set! Use /start to view your tasks or /help for commands."
@@ -182,7 +191,84 @@ class OnboardingFlow {
     );
   }
 
+  // A message during the goal step isn't always a goal. "hi", "i am in
+  // trouble", "who are you?" used to be shoved through the goal validator —
+  // someone saying they're struggling got asked for a deadline. Catch
+  // conversational messages and answer like a person before re-asking.
+  _looksConversational(text) {
+    const t = text.toLowerCase().trim();
+    // A timeframe is the hallmark of a real goal ("get fit in 3 months") —
+    // never treat those as small talk, even if they mention feelings.
+    if (/\b(\d+\s*(day|days|week|weeks|month|months|year|years)|by\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|end)|within\s+\d+)\b/i.test(t)) {
+      return false;
+    }
+    // Greetings and small talk.
+    if (/^(hi+|hey+|hello+|yo|sup|good (morning|afternoon|evening)|how are (you|u)|wass?up|hii+)\b/.test(t) && t.length < 30) {
+      return true;
+    }
+    // Distress / venting — never treat these as goal text.
+    if (/\b(i('| a)?m|i feel|feeling|been)\s+(in trouble|troubled|sad|depressed|anxious|stressed|lost|stuck|down|tired|hopeless|overwhelmed|scared|worried|demotivated|not (ok|okay|good|fine))\b/.test(t)) {
+      return true;
+    }
+    if (/\b(help me|i need help|i need someone|nobody|no one|give up|giving up|can'?t do this|hate my life)\b/.test(t)) {
+      return true;
+    }
+    // Questions about the bot rather than answers.
+    if (/^(who|what|why|how|are you|can you|do you)\b/.test(t) && t.includes('?')) {
+      return true;
+    }
+    return false;
+  }
+
+  async _handleConversationalDetour(chatId, text, askAgain) {
+    try {
+      const messages = [
+        {
+          role: 'system',
+          content: `You are ATLAS, a warm, empathetic personal goal assistant on Telegram. The user is in the middle of setup (you asked for their goal) but they said something conversational or emotional instead.
+
+Their message: "${text.trim()}"
+
+Respond in 2-4 sentences, in this order of priority:
+1. If they sound distressed or troubled: respond with genuine empathy FIRST. Acknowledge the feeling, be kind, ask what's going on if appropriate. Do NOT push the setup. Do NOT ask for goals or deadlines.
+2. If it's a greeting or small talk: greet them warmly back, then gently invite them to share the goal they want to work on.
+3. If it's a question about you: answer it simply, then invite them back to setup.
+
+Never sound like a form. Never say "please provide". No bullet points.`,
+        },
+        { role: 'user', content: text },
+      ];
+      const reply = await aiOrchestrator.execute(messages, { temperature: 0.8, maxTokens: 200 });
+      await telegramClient.sendMessage(this.bot, chatId, reply.trim());
+    } catch (err) {
+      logger.error('Conversational detour reply failed:', err);
+      // Fallback still must not be a form.
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        "I'm here — tell me what's going on. And whenever you're ready, share the goal you'd like to work on together."
+      );
+      return;
+    }
+    if (askAgain) {
+      // Soft nudge only for non-distress detours (greetings/questions).
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        '_Whenever you\'re ready: what goal should we work on, and by when?_',
+        { parse_mode: 'Markdown' }
+      );
+    }
+  }
+
   async _processGoal(chatId, telegramId, text, userState) {
+    if (this._looksConversational(text)) {
+      const isDistress =
+        /\b(trouble|troubled|sad|depressed|anxious|stressed|lost|stuck|down|tired|hopeless|overwhelmed|scared|worried|demotivated|help me|i need help|give up|giving up|can'?t do this|hate my life|not (ok|okay|good|fine))\b/i.test(text);
+      await this._handleConversationalDetour(chatId, text, !isDistress);
+      return;
+    }
+
     if (!text || text.trim().length < 5) {
       await telegramClient.sendMessage(this.bot, chatId,
         "Could you be a bit more specific? Include what you want to achieve and roughly when."
@@ -217,6 +303,12 @@ class OnboardingFlow {
   }
 
   async _processDeadline(chatId, telegramId, text, userState) {
+    // Same guard as the goal step — "i am in trouble" is not a deadline.
+    if (this._looksConversational(text)) {
+      await this._handleConversationalDetour(chatId, text, false);
+      return;
+    }
+
     // Light validation: a timeframe should mention a duration or a date-ish
     // word — "idk" / "whenever" used to become part of the goal verbatim.
     const looksLikeTimeframe =
