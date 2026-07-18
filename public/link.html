@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>ATLAS · Link your account</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #060a13;
+    --glass: rgba(255, 255, 255, 0.045);
+    --edge: rgba(255, 255, 255, 0.09);
+    --edge-bright: rgba(255, 255, 255, 0.16);
+    --text: #eef2fa;
+    --muted: #93a0b8;
+    --teal: #5eead4;
+    --violet: #a78bfa;
+    --alert: #fb7185;
+    --r: 20px;
+    --font-body: 'Space Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--ink);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Backdrop: two very soft color glows on near-black — quiet, no patterns */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(1100px 700px at 80% -10%, rgba(94, 234, 212, 0.07), transparent 60%),
+      radial-gradient(900px 700px at 0% 100%, rgba(167, 139, 250, 0.06), transparent 55%);
+  }
+
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 20px 50px -20px rgba(0, 0, 0, 0.6);
+  }
+
+  .gate { display: grid; place-items: center; min-height: 100vh; text-align: center; padding: 20px; }
+  .gate-card { padding: clamp(32px, 6vw, 52px) clamp(24px, 5vw, 44px); max-width: 440px; width: 100%; }
+  .logo {
+    width: 58px; height: 58px; margin: 0 auto 22px; border-radius: 17px;
+    background: linear-gradient(135deg, rgba(94,234,212,0.9), rgba(167,139,250,0.9));
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 26px; color: #071018;
+    box-shadow: 0 6px 24px -6px rgba(94, 234, 212, 0.45);
+  }
+  h2 { font-size: clamp(20px, 5vw, 24px); margin-bottom: 10px; letter-spacing: -0.02em; }
+  .signed-in {
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    margin-bottom: 24px; min-height: 16px; word-break: break-all;
+  }
+  .signed-in b { color: var(--teal); font-weight: 500; }
+
+  .steps { text-align: left; margin-bottom: 26px; display: grid; gap: 12px; }
+  .step { display: flex; gap: 12px; align-items: flex-start; }
+  .step .n {
+    flex: none; width: 22px; height: 22px; border-radius: 7px; margin-top: 1px;
+    display: grid; place-items: center;
+    background: rgba(94, 234, 212, 0.12); border: 1px solid rgba(94, 234, 212, 0.3);
+    color: var(--teal); font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  }
+  .step p { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .step p a { color: var(--teal); text-decoration: none; }
+  .step p a:hover { text-decoration: underline; }
+  .step p code {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+    background: rgba(255, 255, 255, 0.07); border: 1px solid var(--edge);
+    padding: 1px 6px; border-radius: 6px;
+  }
+
+  .code-row { display: flex; gap: 10px; }
+  #code {
+    flex: 1; min-width: 0; padding: 13px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--edge); border-radius: 12px;
+    color: var(--text); font-family: var(--font-mono); font-size: 17px;
+    letter-spacing: 0.35em; text-transform: uppercase; text-align: center;
+    outline: none; transition: border-color 0.2s;
+  }
+  #code:focus { border-color: var(--teal); }
+  #code::placeholder { letter-spacing: 0.15em; font-size: 13px; color: var(--muted); }
+  #link-btn {
+    flex: none; padding: 13px 22px;
+    background: linear-gradient(135deg, rgba(94,234,212,0.9), rgba(167,139,250,0.9));
+    border: none; border-radius: 12px; cursor: pointer;
+    color: #071018; font: 600 14px var(--font-body);
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  #link-btn:hover:not(:disabled) { transform: translateY(-1px); }
+  #link-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .err { color: var(--alert); font-size: 13px; margin-top: 16px; min-height: 18px; font-family: var(--font-mono); }
+  .ok { color: var(--teal); }
+  .back {
+    display: inline-block; margin-top: 22px;
+    color: var(--muted); font-family: var(--font-mono); font-size: 12px; text-decoration: none;
+  }
+  .back:hover { color: var(--text); }
+
+  @media (max-width: 380px) {
+    .code-row { flex-direction: column; }
+    #link-btn { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="gate">
+  <div class="gate-card glass">
+    <div class="logo">A</div>
+    <h2>Link your Telegram</h2>
+    <div id="signed-in" class="signed-in">Checking your sign-in…</div>
+
+    <div class="steps">
+      <div class="step"><span class="n">1</span>
+        <p>Open <a href="https://t.me/AtlasGrowbot" target="_blank" rel="noopener">@AtlasGrowbot</a> in Telegram.</p></div>
+      <div class="step"><span class="n">2</span>
+        <p>Send it the command <code>/linkweb</code> — it replies with a 6-character code.</p></div>
+      <div class="step"><span class="n">3</span>
+        <p>Enter the code below within 10 minutes.</p></div>
+    </div>
+
+    <form class="code-row" onsubmit="return submitCode(event)">
+      <input id="code" maxlength="6" placeholder="ABC123" autocomplete="one-time-code"
+             inputmode="text" spellcheck="false" aria-label="6-character link code" />
+      <button id="link-btn" type="submit">Link</button>
+    </form>
+    <div id="err" class="err" role="alert"></div>
+
+    <a class="back" href="/dashboard.html">&larr; back to sign-in</a>
+  </div>
+</div>
+
+<script>
+const API = '/api/dashboard';
+const errEl = document.getElementById('err');
+
+// Show which Google account is mid-linking. If the pending cookie is gone
+// (expired / cleared), there's nothing to link — send them back to sign in.
+(async function boot() {
+  try {
+    const r = await fetch(API + '/auth/pending');
+    if (r.status === 401) {
+      location.replace('/dashboard.html?error=google');
+      return;
+    }
+    if (!r.ok) throw new Error('pending failed');
+    const data = await r.json();
+    document.getElementById('signed-in').innerHTML = data.email
+      ? 'Signed in as <b>' + escapeHtml(data.email) + '</b>'
+      : 'Signed in with Google';
+  } catch (e) {
+    document.getElementById('signed-in').textContent =
+      'Could not verify your sign-in. Refresh to retry.';
+  }
+})();
+
+async function submitCode(ev) {
+  ev.preventDefault();
+  const input = document.getElementById('code');
+  const btn = document.getElementById('link-btn');
+  const code = input.value.trim().toUpperCase();
+
+  errEl.classList.remove('ok');
+  if (!/^[A-Z0-9]{6}$/.test(code)) {
+    errEl.textContent = 'Enter the 6-character code from the bot.';
+    return false;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Linking…';
+  try {
+    const r = await fetch(API + '/auth/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      errEl.textContent = data.error || 'Linking failed. Try a fresh code.';
+      btn.disabled = false;
+      btn.textContent = 'Link';
+      return false;
+    }
+    errEl.classList.add('ok');
+    errEl.textContent = 'Linked! Opening your dashboard…';
+    location.replace('/dashboard.html');
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    btn.disabled = false;
+    btn.textContent = 'Link';
+  }
+  return false;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ yarn-error.log*
 .env.local
 .env.production
 .env.*
+!.env.example
 
 # Logs
 logs/
@@ -34,6 +35,7 @@ Thumbs.db
 FULL_GENERATED_CODE_DUMP.txt
 # Deployment notes (private)
 DEPLOY.md
+DEPLOY_RENDER.md
 
 # Local tooling
 .tools/

@@ -18,6 +18,8 @@ const {
   clearSessionCookie,
   requireAuth,
 } = require('./telegramAuth');
+const googleAuth = require('./googleAuth');
+const authQueries = require('../database/queries/authQueries');
 const { rateLimit } = require('./rateLimit');
 
 const router = express.Router();
@@ -75,6 +77,89 @@ router.post('/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Google sign-in --------------------------------------------------------
+
+// Start the OAuth flow: bounce the browser to Google's consent screen.
+router.get('/auth/google', (req, res) => {
+  if (!googleAuth.googleEnabled()) {
+    return res.status(404).json({ error: 'Google sign-in not configured' });
+  }
+  res.redirect(googleAuth.buildAuthUrl());
+});
+
+// Google redirects back here with ?code & ?state.
+router.get('/auth/google/callback', async (req, res) => {
+  if (!googleAuth.googleEnabled()) {
+    return res.status(404).json({ error: 'Google sign-in not configured' });
+  }
+  try {
+    googleAuth.verifyState(req.query.state);
+    if (!req.query.code) throw new Error('Missing authorization code');
+
+    const { sub, email } = await googleAuth.exchangeCode(req.query.code);
+
+    const existing = await authQueries.findIdentity('google', sub);
+    if (existing && existing.telegram_id) {
+      // Already linked to a Telegram account — straight in.
+      const token = issueSession(existing.telegram_id);
+      setSessionCookie(res, token);
+      return res.redirect('/dashboard.html');
+    }
+
+    // First Google login (or linked never completed): remember the identity
+    // and send them to the linking page.
+    const identity = existing || (await authQueries.upsertIdentity('google', sub, email));
+    googleAuth.setPendingCookie(res, identity.id);
+    return res.redirect('/link.html');
+  } catch (err) {
+    logger.warn('Google login rejected:', err.message);
+    return res.redirect('/dashboard.html?error=google');
+  }
+});
+
+// link.html asks who is mid-linking, to show "Signed in as x@gmail.com".
+router.get('/auth/pending', async (req, res) => {
+  try {
+    const identity = await googleAuth.getPendingIdentity(req);
+    if (!identity) return res.status(401).json({ error: 'No pending sign-in' });
+    res.json({ email: identity.email });
+  } catch (err) {
+    logger.error('/auth/pending failed:', err);
+    res.status(500).json({ error: 'Failed to load pending sign-in' });
+  }
+});
+
+// Complete the link: consume the code from /linkweb, attach telegram_id to
+// the Google identity, and start a normal session.
+router.post('/auth/link', async (req, res) => {
+  try {
+    const identity = await googleAuth.getPendingIdentity(req);
+    if (!identity) {
+      return res.status(401).json({ error: 'Sign in with Google first' });
+    }
+
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the 6-character code from the bot' });
+    }
+
+    const telegramId = await authQueries.consumeLinkCode(code);
+    if (!telegramId) {
+      return res.status(400).json({ error: 'Code invalid or expired — send /linkweb to the bot for a fresh one' });
+    }
+
+    await authQueries.linkIdentity(identity.id, telegramId);
+
+    const token = issueSession(telegramId);
+    setSessionCookie(res, token);
+    googleAuth.clearPendingCookie(res);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('/auth/link failed:', err);
+    res.status(500).json({ error: 'Linking failed' });
+  }
+});
+
 // Dev login requires BOTH: not production AND an explicit opt-in flag.
 // Gating on NODE_ENV alone was dangerous — NODE_ENV defaults to 'development'
 // when unset, so a forgotten env var on a live server would have turned this
@@ -89,6 +174,7 @@ router.get('/config', (req, res) => {
   res.json({
     botUsername: config.telegram.botUsername,
     devLogin: devLoginEnabled(),
+    googleEnabled: googleAuth.googleEnabled(),
   });
 });
 

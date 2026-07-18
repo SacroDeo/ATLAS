@@ -9,6 +9,10 @@ adminId: process.env.ADMIN_TELEGRAM_ID,
 dashboard: {
 jwtSecret: process.env.JWT_SECRET,
 url: process.env.DASHBOARD_URL || 'http://localhost:3000',
+google: {
+clientId: process.env.GOOGLE_CLIENT_ID,
+clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+},
 },
 supabase: {
 url: process.env.SUPABASE_URL,

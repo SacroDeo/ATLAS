@@ -1042,6 +1042,28 @@ Return ONLY valid JSON:
         );
         break;
       }
+      case '/linkweb': {
+        // One-time code to link a Google web login to this Telegram account.
+        const authQueries = require('../../database/queries/authQueries');
+        const crypto = require('crypto');
+        // Unambiguous alphabet: no 0/O or 1/I lookalikes.
+        const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (const byte of crypto.randomBytes(6)) {
+          code += alphabet[byte % alphabet.length];
+        }
+        await authQueries.createLinkCode(code, telegramId, 10);
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          '🔗 *Link your web login*\n\n' +
+          `Your code: \`${code}\`\n\n` +
+          'Enter it on the website page that asked for it. ' +
+          'It expires in 10 minutes and works once.',
+          { parse_mode: 'Markdown' }
+        );
+        break;
+      }
       case '/reset':
         await this.handleReset(chatId, user);
         break;

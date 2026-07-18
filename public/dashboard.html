@@ -93,6 +93,29 @@
   .gate-card h2 { font-size: clamp(20px, 5vw, 24px); margin-bottom: 10px; letter-spacing: -0.02em; }
   .gate-card p { color: var(--muted); font-size: 14px; margin-bottom: 28px; line-height: 1.55; }
   .gate-widget { display: flex; justify-content: center; min-height: 46px; }
+  /* "Continue with Google" — same glass language as the cards. Hidden until
+     /config says googleEnabled. */
+  .google-btn {
+    display: none; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; margin-top: 14px; padding: 12px 18px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--edge); border-radius: 12px;
+    color: var(--text); font: 600 14px var(--font-body, inherit);
+    cursor: pointer; text-decoration: none;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .google-btn:hover, .google-btn:focus-visible { border-color: var(--teal); background: rgba(255, 255, 255, 0.09); }
+  .google-btn svg { width: 18px; height: 18px; flex: none; }
+  .gate-or {
+    display: none; align-items: center; gap: 12px; margin-top: 16px;
+    color: var(--muted); font-family: var(--font-mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.14em;
+  }
+  .gate-or::before, .gate-or::after {
+    content: ''; flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--edge-bright), transparent);
+  }
   .err { color: var(--alert); font-size: 13px; margin-top: 16px; min-height: 18px; font-family: var(--font-mono); }
 
   /* ---------- Greeting ---------- */
@@ -224,6 +247,16 @@
       <h2>Welcome to ATLAS</h2>
       <p>Sign in with the same Telegram account you use with the bot to see your progress.</p>
       <div id="tg-widget" class="gate-widget"></div>
+      <div id="gate-or" class="gate-or">or</div>
+      <a id="google-btn" class="google-btn" href="/api/dashboard/auth/google">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15A11 11 0 0 0 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        Continue with Google
+      </a>
       <div id="gate-err" class="err"></div>
     </div>
   </div>
@@ -322,9 +355,13 @@ async function showGate() {
   document.getElementById('app').style.display = 'none';
   document.getElementById('gate').style.display = 'grid';
 
-  if (new URLSearchParams(location.search).get('error') === 'auth') {
+  const gateErr = new URLSearchParams(location.search).get('error');
+  if (gateErr === 'auth') {
     document.getElementById('gate-err').textContent =
       'Sign-in failed or expired. Please try again.';
+  } else if (gateErr === 'google') {
+    document.getElementById('gate-err').textContent =
+      'Google sign-in failed. Please try again.';
   }
 
   try {
@@ -350,6 +387,12 @@ async function showGate() {
       s.setAttribute('data-auth-url', API + '/auth/telegram');
       s.setAttribute('data-request-access', 'write');
       mount.appendChild(s);
+    }
+
+    // Google sign-in — only when the server has credentials configured.
+    if (cfg.googleEnabled) {
+      document.getElementById('gate-or').style.display = 'flex';
+      document.getElementById('google-btn').style.display = 'flex';
     }
   } catch (e) {
     document.getElementById('gate-err').textContent = 'Could not load login. Refresh to retry.';
