@@ -201,6 +201,15 @@
   .dot.completed { background: var(--teal); box-shadow: 0 0 10px rgba(94, 234, 212, 0.55); }
   .dot.pending { background: var(--amber); box-shadow: 0 0 10px rgba(251, 191, 36, 0.4); }
   .dot.skipped, .dot.too_hard { background: var(--alert); }
+  /* Text label so task state is readable, not just a colored dot */
+  .tstat {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+    padding: 3px 9px; border-radius: 7px; margin-top: 4px; flex-shrink: 0;
+    border: 1px solid var(--edge); color: var(--muted);
+  }
+  .tstat.completed { color: var(--teal); border-color: rgba(94, 234, 212, 0.35); }
+  .tstat.pending { color: var(--amber); border-color: rgba(251, 191, 36, 0.3); }
+  .tstat.skipped, .tstat.too_hard { color: var(--alert); border-color: rgba(251, 113, 133, 0.35); }
   .task-body { flex: 1; min-width: 0; }
   .task-title { font-size: 14px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
   .task-title.done { text-decoration: line-through; color: var(--muted); }
@@ -514,9 +523,12 @@ async function loadToday() {
     return;
   }
   const done = tasks.filter(t => t.status === 'completed').length;
-  hint.textContent = done + ' of ' + tasks.length + ' completed';
+  const skipped = tasks.filter(t => t.status === 'skipped' || t.status === 'too_hard').length;
+  hint.textContent = done + ' of ' + tasks.length + ' completed'
+    + (skipped ? ' · ' + skipped + ' skipped' : '');
   // Whitelist status → class so a DB value can never inject attribute content
   const statusClass = s => ['completed','pending','skipped','too_hard'].includes(s) ? s : 'pending';
+  const statusLabel = { completed: 'done', pending: 'pending', skipped: 'skipped', too_hard: 'too hard' };
   list.innerHTML = tasks.map(t => `
     <div class="task">
       <div class="dot ${statusClass(t.status)}"></div>
@@ -525,6 +537,7 @@ async function loadToday() {
           ${t.difficulty ? '<span class="badge">' + escapeHtml(t.difficulty) + '</span>' : ''}</div>
         ${t.estimatedTime ? '<div class="task-meta">⏱ ' + escapeHtml(String(t.estimatedTime)) + ' min</div>' : ''}
       </div>
+      <span class="tstat ${statusClass(t.status)}">${statusLabel[statusClass(t.status)]}</span>
     </div>`).join('');
 }
 
