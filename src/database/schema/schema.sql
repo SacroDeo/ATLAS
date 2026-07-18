@@ -48,6 +48,7 @@ CREATE TABLE users (
     -- Progressive profile questions
     progressive_onboarding_step INTEGER DEFAULT 0,
     last_progressive_question_date DATE,
+    terms_agreed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

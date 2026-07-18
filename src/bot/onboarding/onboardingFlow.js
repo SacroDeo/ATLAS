@@ -2,6 +2,7 @@
 const aiOrchestrator = require('../../services/ai/aiOrchestrator');
 const userQueries = require('../../database/queries/userQueries');
 const timezoneUtils = require('../../utils/timezoneUtils');
+const config = require('../../config');
 const logger = require('../../utils/logger');
 const { dailyCron } = require('../../cron/dailyCron');
 const telegramClient = require('../../utils/telegram/telegramClient');
@@ -126,6 +127,9 @@ class OnboardingFlow {
       case 'awaiting_deadline':
         await this._processDeadline(chatId, telegramId, text, userState);
         break;
+      case 'awaiting_goal_clarify':
+        await this._processGoalClarify(chatId, telegramId, text, userState);
+        break;
       case this.states.AVAILABLE_TIME:
         await this._processAvailableTime(chatId, telegramId, text, userState);
         break;
@@ -171,6 +175,10 @@ class OnboardingFlow {
         break;
       case this.states.TASK_MODE:
         await this._askTaskMode(chatId);
+        break;
+      case 'awaiting_goal_clarify':
+        await telegramClient.sendMessage(this.bot, chatId,
+          userState.data.clarify_question || 'Tell me a bit more about the field or area of your goal.');
         break;
       default:
         await this._askGoal(chatId);
@@ -290,16 +298,92 @@ Never sound like a form. Never say "please provide". No bullet points.`,
       return;
     }
 
-    userState.data.goal = text.trim();
+    await this._finishGoal(chatId, telegramId, text.trim(), userState, false);
+  }
+
+  // "land an internship in 1 month" passes the timeframe check but is
+  // unplannable — internship in WHAT field? Ask the AI whether the goal names
+  // a concrete domain; if not, it writes the follow-up question itself.
+  async _checkGoalClarity(goal) {
+    try {
+      const messages = [
+        {
+          role: 'system',
+          content: `You check whether a user's personal goal is specific enough to build a day-by-day task roadmap for it.
+
+A goal is UNCLEAR only when the domain/field/subject needed to plan tasks is missing:
+- "land an internship in 1 month" → unclear (internship in which field?)
+- "get a job by December" → unclear (what kind of job/role?)
+- "pass my exam in 2 weeks" → unclear (which exam/subject?)
+- "become a SOC Analyst in 6 months" → clear
+- "learn Python and build a project in 3 months" → clear
+- "lose 8kg by September" → clear (fitness — no field needed)
+
+Lean towards clear — only flag genuinely unplannable goals. Reply with ONLY JSON, nothing else:
+{"clear": true}
+or
+{"clear": false, "question": "<ONE short, warm follow-up question asking for exactly the missing piece>"}`,
+        },
+        { role: 'user', content: goal },
+      ];
+      const raw = await aiOrchestrator.execute(messages, { temperature: 0.1, maxTokens: 150 });
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) return { clear: true };
+      const parsed = JSON.parse(match[0]);
+      return {
+        clear: parsed.clear !== false,
+        question: typeof parsed.question === 'string' ? parsed.question.slice(0, 300) : null,
+      };
+    } catch (err) {
+      // Fail open — a vague goal is better than a stuck onboarding.
+      logger.warn('Goal clarity check failed — proceeding without follow-up:', err.message);
+      return { clear: true };
+    }
+  }
+
+  // Shared tail of the goal step: clarity-check once, then lock in and move on.
+  async _finishGoal(chatId, telegramId, goal, userState, alreadyClarified) {
+    if (!alreadyClarified) {
+      const clarity = await this._checkGoalClarity(goal);
+      if (!clarity.clear && clarity.question) {
+        userState.data.goal_pending     = goal;
+        userState.data.clarify_question = clarity.question;
+        userState.state     = 'awaiting_goal_clarify';
+        userState.updatedAt = Date.now();
+        this.userStates.set(telegramId, userState);
+        await telegramClient.sendMessage(this.bot, chatId, clarity.question);
+        return;
+      }
+    }
+
+    userState.data.goal = goal;
+    delete userState.data.goal_pending;
+    delete userState.data.clarify_question;
     userState.state     = this.states.DOMAIN_KNOWLEDGE;
     userState.updatedAt = Date.now();
     this.userStates.set(telegramId, userState);
 
     await userQueries.updateOnboardingState(telegramId, this.states.DOMAIN_KNOWLEDGE, {
-      goal: text.trim(),
+      goal,
     });
 
+    await telegramClient.sendMessage(this.bot, chatId, `Perfect. *Goal locked in:* _${goal}_`, { parse_mode: 'Markdown' });
     await this._askDomainKnowledge(chatId);
+  }
+
+  async _processGoalClarify(chatId, telegramId, text, userState) {
+    if (this._looksConversational(text)) {
+      await this._handleConversationalDetour(chatId, text, false);
+      return;
+    }
+    if (!text || text.trim().length < 2) {
+      await telegramClient.sendMessage(this.bot, chatId,
+        userState.data.clarify_question || 'Could you tell me a bit more about the field or area?');
+      return;
+    }
+    const merged = `${userState.data.goal_pending} — ${text.trim()}`;
+    // alreadyClarified: one follow-up max, never an interrogation loop.
+    await this._finishGoal(chatId, telegramId, merged, userState, true);
   }
 
   async _processDeadline(chatId, telegramId, text, userState) {
@@ -324,17 +408,7 @@ Never sound like a form. Never say "please provide". No bullet points.`,
     }
 
     const fullGoal = `${userState.data.goal_partial} — ${text.trim()}`;
-    userState.data.goal = fullGoal;
-    userState.state     = this.states.DOMAIN_KNOWLEDGE;
-    userState.updatedAt = Date.now();
-    this.userStates.set(telegramId, userState);
-
-    await userQueries.updateOnboardingState(telegramId, this.states.DOMAIN_KNOWLEDGE, {
-      goal: fullGoal,
-    });
-
-    await telegramClient.sendMessage(this.bot, chatId, `Perfect. *Goal locked in:* _${fullGoal}_`, { parse_mode: 'Markdown' });
-    await this._askDomainKnowledge(chatId);
+    await this._finishGoal(chatId, telegramId, fullGoal, userState, false);
   }
 
   async _askDomainKnowledge(chatId) {
@@ -687,6 +761,26 @@ Never sound like a form. Never say "please provide". No bullet points.`,
       { parse_mode: 'Markdown' }
     );
 
+    // Some users already have a plan (from a course, a mentor, ChatGPT…) —
+    // let them use THEIRS instead of forcing an AI roadmap on them.
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      "🗺️ *One more thing — the roadmap.*\n\n" +
+      "Do you already have a plan or roadmap for this goal? If yes, you can paste it and I'll follow *your* plan when building daily tasks.",
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🤖 Build one for me',            callback_data: 'ownroadmap_no'  }],
+            [{ text: "📋 I have my own — I'll paste it", callback_data: 'ownroadmap_yes' }],
+          ],
+        },
+      }
+    );
+  }
+
+  async _generateAiRoadmap(chatId, telegramId) {
     await telegramClient.sendMessage(this.bot, chatId, `🗺️ Generating your roadmap...`);
 
     try {
@@ -694,7 +788,7 @@ Never sound like a form. Never say "please provide". No bullet points.`,
       const freshUser = await userQueries.getUserByTelegramId(telegramId);
       const roadmap = await roadmapGenerator.generate(freshUser);
       await telegramClient.sendMessage(this.bot, chatId, roadmap, { parse_mode: 'Markdown' });
-      
+
       // NEW
 await telegramClient.sendMessage(
   this.bot,
@@ -729,17 +823,20 @@ await telegramClient.sendMessage(
   }
 
   async _sendWelcome(chatId, telegramId) {
+    const base = config.dashboard.url;
     await telegramClient.sendMessage(
       this.bot,
       chatId,
       "👋 Welcome to *ATLAS* — your AI personal goal assistant.\n\n" +
       "Before we set you up, let me show you exactly how this works.\n\n" +
-      "_(Takes 30 seconds — don't skip this or you'll be confused later 😅)_",
+      "_(Takes 30 seconds — don't skip this or you'll be confused later 😅)_\n\n" +
+      `By continuing, you agree to our [Privacy Policy](${base}/privacy.html) and [Terms of Use](${base}/terms.html).`,
       {
         parse_mode: 'Markdown',
+        disable_web_page_preview: true,
         reply_markup: {
           inline_keyboard: [
-            [{ text: '📖 Show Me How It Works →', callback_data: 'onboarding_how_it_works' }],
+            [{ text: '✅ I Agree — Show Me How It Works →', callback_data: 'onboarding_agree' }],
           ],
         },
       }
@@ -936,6 +1033,14 @@ Be concise. Be real.`
     try {
       await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
 
+      if (data === 'onboarding_agree') {
+        // Record consent (timestamped) before anything else happens.
+        userQueries.recordTermsAgreement(telegramId).catch((err) =>
+          logger.error('Failed to record terms agreement:', err.message));
+        await this._sendHowItWorks(chatId);
+        return;
+      }
+
       if (data === 'onboarding_how_it_works') {
         await this._sendHowItWorks(chatId);
         return;
@@ -1090,6 +1195,27 @@ Be concise. Be real.`
         }
 
         await this._saveBiggestStruggle(chatId, telegramId, struggle, userState);
+        return;
+      }
+
+      if (data === 'ownroadmap_no') {
+        await this._generateAiRoadmap(chatId, telegramId);
+        return;
+      }
+
+      if (data === 'ownroadmap_yes') {
+        // The paste arrives as a normal message AFTER onboarding_completed is
+        // already true, so it routes through messageHandler's state machine —
+        // not this flow. Hand over via stateManager.
+        const stateManager = require('../../core/state/stateManager');
+        stateManager.set(telegramId, 'awaiting_custom_roadmap');
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          "📋 *Paste your roadmap now* — one message, any format.\n\n" +
+          "Bullets, numbered weeks, a plan from a course or ChatGPT — all fine. I'll structure it and build your daily tasks from it.",
+          { parse_mode: 'Markdown' }
+        );
         return;
       }
 

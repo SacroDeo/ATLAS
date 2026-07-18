@@ -119,6 +119,7 @@ const inlineKeyboards = {
           ],
           [
             { text: '📍 Current Phase', callback_data: 'roadmap:phase' },
+            { text: '📋 Use my own roadmap', callback_data: 'roadmap:own' },
           ],
         ],
       },

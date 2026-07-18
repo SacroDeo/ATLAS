@@ -412,10 +412,11 @@ logger.info(`[processUser] Tasks sent successfully`);
 
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
+      const greet = timezoneUtils.getGreeting(user.timezone);
       await telegramClient.sendMessage(
         this.bot,
         user.telegram_id,
-        `🌅 *Good Morning\\!*\n\n🎯 *Today's Mission*\n${telegramUtils.escapeMarkdown(taskIntro)}`,
+        `${greet.emoji} *${telegramUtils.escapeMarkdown(greet.text)}\\!*\n\n🎯 *Today's Mission*\n${telegramUtils.escapeMarkdown(taskIntro)}`,
         { parse_mode: 'MarkdownV2' }
       );
 
@@ -493,10 +494,11 @@ logger.info(`[processUser] Tasks sent successfully`);
 
       const name = user.first_name || 'there';
 
+      const greet = timezoneUtils.getGreeting(userTimezone);
       await telegramClient.sendMessage(
         this.bot,
         user.telegram_id,
-        `☀️ Good morning, ${name}! How would you like your tasks today?`,
+        `${greet.emoji} ${greet.text}, ${name}! How would you like your tasks today?`,
         {
           reply_markup: {
             inline_keyboard: [[

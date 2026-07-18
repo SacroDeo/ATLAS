@@ -182,6 +182,7 @@ const onboardingPrefixes = [
   'taskmode_',
   'finalmode_',
   'roadmap_weekly_',
+  'ownroadmap_',
 ];
 
 const isOnboardingCallback =
@@ -1164,10 +1165,28 @@ if (!phase) {
 }
 
 
+// "Use my own roadmap" from the /roadmap menu — replaces the current
+// roadmap with whatever plan the user pastes next.
+async handleRoadmapOwn(callbackQuery) {
+  const { chatId, user } =
+    await this._getCallbackContext(callbackQuery);
+
+  const stateManager = require('../../core/state/stateManager');
+  stateManager.set(user.telegram_id, 'awaiting_custom_roadmap');
+
+  await telegramClient.sendMessage(
+    this.bot,
+    chatId,
+    "📋 *Paste your roadmap now* — one message, any format.\n\n" +
+    "It will REPLACE your current roadmap, and daily tasks will follow your plan from phase 1. Say *cancel* to keep things as they are.",
+    { parse_mode: 'Markdown' }
+  );
+}
+
+
 async handleRoadmapWeekly(
   callbackQuery
 ) {
-
   const { chatId, messageId, user } =
     await this._getCallbackContext(
       callbackQuery

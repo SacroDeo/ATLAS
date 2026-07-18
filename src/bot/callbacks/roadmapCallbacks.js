@@ -19,6 +19,9 @@ module.exports = {
       case 'phase':
         return ctx.handleRoadmapPhase(callbackQuery);
 
+      case 'own':
+        return ctx.handleRoadmapOwn(callbackQuery);
+
       default:
         throw new Error(
           `Unknown roadmap action: ${action}`

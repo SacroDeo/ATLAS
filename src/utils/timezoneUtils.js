@@ -188,6 +188,19 @@ const timezoneUtils = {
     return format(zoned, 'h:mm a', { timeZone: timezone });
   },
 
+  /**
+   * Time-of-day greeting in the USER's timezone — tasks can arrive hours
+   * after the preferred slot (catch-up window), so "Good morning" at 6pm
+   * reads like the bot has no idea what time it is.
+   */
+  getGreeting(timezone) {
+    const hour = this.getCurrentTimeInZone(timezone || 'UTC').getHours();
+    if (hour >= 5 && hour < 12)  return { text: 'Good morning',   emoji: '🌅' };
+    if (hour >= 12 && hour < 17) return { text: 'Good afternoon', emoji: '☀️' };
+    if (hour >= 17 && hour < 22) return { text: 'Good evening',   emoji: '🌆' };
+    return { text: 'Hey night owl', emoji: '🌙' };
+  },
+
   formatDateTimeInZone(date, timezone) {
     const zoned = toZonedTime(date, timezone);
     return format(zoned, 'h:mm a, MMMM d yyyy', { timeZone: timezone });

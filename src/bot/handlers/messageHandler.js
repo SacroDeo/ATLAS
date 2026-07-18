@@ -98,6 +98,10 @@ class MessageHandler {
         await this.handleTimezoneChangeInput(chatId, text, user);
         return;
       }
+      if (currentState === 'awaiting_custom_roadmap') {
+        await this.handleCustomRoadmapPaste(chatId, text, user);
+        return;
+      }
 
       // ── PRIORITY 4: Socratic questions ────────────────────────────────────
       const unansweredLogs = await socraticQueries.getUnansweredLogs(user.id);
@@ -716,6 +720,70 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       `🌍 Your current timezone is *${currentTz}*\n\nReply with your city or timezone (e.g., "New York", "London", "IST", "UTC+5:30") to change it.`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  // User pasted their own roadmap (state set by the ownroadmap_yes button,
+  // either during onboarding or via "use my own roadmap" later).
+  async handleCustomRoadmapPaste(chatId, text, user) {
+    if (/^cancel$/i.test(text.trim())) {
+      stateManager.clear(user.telegram_id);
+      if (user.roadmap) {
+        // Post-onboarding "change roadmap" flow — keep what they have.
+        await telegramClient.sendMessage(this.bot, chatId, '👍 No changes — your current roadmap stays.');
+      } else {
+        // Onboarding flow — they need SOME roadmap, so build one.
+        await this.onboardingFlow._generateAiRoadmap(chatId, user.telegram_id);
+      }
+      return;
+    }
+    if (text.trim().length < 30) {
+      // Too short to be a plan — probably a stray message. Keep waiting.
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        "That looks too short to be a roadmap. Paste your full plan in one message — or say *cancel* and I'll build one for you instead.",
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    stateManager.clear(user.telegram_id);
+    await telegramClient.sendMessage(this.bot, chatId, '📋 Reading your roadmap...');
+
+    const customRoadmapParser = require('../../services/ai/customRoadmapParser');
+    const roadmapText = await customRoadmapParser.importRoadmap(user, text);
+
+    if (!roadmapText) {
+      await telegramClient.sendMessage(
+        this.bot,
+        chatId,
+        "Hmm, I couldn't read that as a plan. Want to paste it again, or should I build a roadmap for you?",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📋 Paste again',      callback_data: 'ownroadmap_yes' }],
+              [{ text: '🤖 Build one for me', callback_data: 'ownroadmap_no'  }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    await telegramClient.sendMessage(this.bot, chatId, roadmapText, { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      "✅ *Your roadmap is locked in.* Daily tasks will follow YOUR plan, phase by phase.\n\n" +
+      "You can still add your own tasks any day — just say \"add task\" — and tell me anytime to *change roadmap*.",
+      { parse_mode: 'Markdown' }
+    );
+
+    // Same next step the AI-roadmap path takes after the weekly-breakdown
+    // question: the life-struggle question keeps the onboarding chain intact.
+    if (!user.life_struggle) {
+      await this.onboardingFlow._askLifeStruggle(chatId);
+    }
   }
 
   async handleTimezoneChangeInput(chatId, text, user) {

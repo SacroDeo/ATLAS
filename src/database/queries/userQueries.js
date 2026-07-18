@@ -170,6 +170,17 @@ const userQueries = {
     return data;
   },
 
+  // Consent bookkeeping — stored so we can prove agreement if ever needed.
+  // Swallow-safe: schema may not have the column yet (pre-migration), and
+  // consent must never block onboarding.
+  async recordTermsAgreement(telegramId) {
+    const { error } = await supabase
+      .from('users')
+      .update({ terms_agreed_at: new Date().toISOString() })
+      .eq('telegram_id', telegramId);
+    if (error) throw error;
+  },
+
   async resetUser(userId) {
     const { data, error } = await supabase
       .from('users')
