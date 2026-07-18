@@ -102,6 +102,8 @@ bot.on('callback_query', async (callbackQuery) => {
 });
 
 let pollingRestartInFlight = false;
+let conflictStart = null;
+let lastConflictAt = null;
 
 bot.on('polling_error', (error) => {
   logger.error('Polling error:', error.message);
@@ -131,7 +133,16 @@ bot.on('polling_error', (error) => {
 
   if (error.response?.statusCode === 409) {
     logger.error('Conflict: another bot instance already running.');
-    alertAdmin('conflict', 'Two bot instances are polling at once (409). Kill one.');
+    // Render deploys overlap old+new instances for ~10-30s, causing transient
+    // 409s on every deploy. Only a conflict that PERSISTS (local server left
+    // running alongside Render) is worth an admin alert.
+    const now = Date.now();
+    if (lastConflictAt && now - lastConflictAt > 60000) conflictStart = null; // stale episode, start over
+    if (!conflictStart) conflictStart = now;
+    lastConflictAt = now;
+    if (now - conflictStart > 90000) {
+      alertAdmin('conflict', 'Bot conflict (409) persisting over 90s — a second instance is running (local server?). Kill it.');
+    }
   }
 });
 
