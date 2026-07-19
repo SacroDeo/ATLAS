@@ -51,7 +51,7 @@ class CheckinCron {
     // Every 5 minutes is plenty for 30-minute windows and keeps DB load low.
     this.job = cron.schedule('*/5 * * * *', async () => {
       await this.tick();
-    }, { scheduled: true, timezone: 'UTC' });
+    }, { timezone: 'UTC' });
 
     this.running = true;
     logger.info('Check-in cron scheduled - midday & evening task check-ins, per-user timezone');

@@ -37,7 +37,6 @@ class DailyCron {
     this.job = cron.schedule('* * * * *', async () => {
       await this.checkAndSendTasks();
     }, {
-      scheduled: true,
       timezone: 'UTC'
     });
 

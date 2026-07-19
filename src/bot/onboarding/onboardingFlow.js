@@ -833,7 +833,7 @@ await telegramClient.sendMessage(
       `By continuing, you agree to our [Privacy Policy](${base}/privacy.html) and [Terms of Use](${base}/terms.html).`,
       {
         parse_mode: 'Markdown',
-        disable_web_page_preview: true,
+        link_preview_options: { is_disabled: true },
         reply_markup: {
           inline_keyboard: [
             [{ text: '✅ I Agree — Show Me How It Works →', callback_data: 'onboarding_agree' }],

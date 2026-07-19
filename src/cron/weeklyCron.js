@@ -30,7 +30,6 @@ class WeeklyCron {
       logger.info('Weekly cron job started - generating reviews');
       await this.executeWeeklyReviews();
     }, {
-      scheduled: true,
       timezone: 'UTC'
     });
 

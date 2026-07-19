@@ -3,7 +3,8 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const TelegramBot = require('node-telegram-bot-api');
+// v1.x CJS build exports { TelegramBot }; 0.x exported the class directly.
+const { TelegramBot } = require('node-telegram-bot-api');
 
 const config = require('./src/config');
 const logger = require('./src/utils/logger');
@@ -131,7 +132,9 @@ bot.on('polling_error', (error) => {
     return;
   }
 
-  if (error.response?.statusCode === 409) {
+  // v1.x of the bot API exposes error.response.status; 0.x used statusCode.
+  const status = error.response?.status ?? error.response?.statusCode;
+  if (status === 409) {
     logger.error('Conflict: another bot instance already running.');
     // Render deploys overlap old+new instances for ~10-30s, causing transient
     // 409s on every deploy. Only a conflict that PERSISTS (local server left
