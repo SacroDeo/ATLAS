@@ -34,6 +34,11 @@ const { weeklyCron } = require('./src/cron/weeklyCron');
 const { checkinCron } = require('./src/cron/checkinCron');
 
 const app = express();
+
+// Dodo Payments webhook needs the RAW body for signature verification, so it
+// mounts BEFORE express.json() — the route applies express.raw() itself.
+app.use('/webhooks/dodo', require('./src/routes/dodoWebhook'));
+
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());

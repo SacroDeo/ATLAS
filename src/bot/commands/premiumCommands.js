@@ -168,6 +168,7 @@ const premiumCommands = {
       `• Unlimited goals\n• Full long-term memory\n• Deep weekly reviews\n• Priority AI\n\n` +
       `Scan the QR with any UPI app (GPay, PhonePe, Paytm) and pay ₹${PRICE_INR}\n\n` +
       `Then send: /paid YOUR_UPI_REFERENCE\nPro activates within a few hours 🚀\n\n` +
+      `🌍 Outside India? Pay by card: /paycard\n` +
       `Have a coupon? /redeem CODE`;
     if (fs.existsSync(qrPath)) {
       await bot.sendPhoto(chatId, qrPath, { caption, parse_mode: 'Markdown' });
@@ -177,6 +178,43 @@ const premiumCommands = {
         `⭐ *ATLAS Pro* — ₹${PRICE_INR}/month\n\nPayment details are being set up — check back soon!`,
         { parse_mode: 'Markdown' });
     }
+    return true;
+  },
+
+  // /paycard — international card payment via Dodo (merchant of record).
+  // Generates a personal hosted-checkout link; webhook auto-activates Pro.
+  async handlePayCard(bot, chatId, telegramId, user) {
+    const dodo = require('../../services/premium/dodoService');
+    const { isPremium } = require('../../services/premium/entitlements');
+    if (!(await paymentsEnabled())) {
+      await telegramClient.sendMessage(bot, chatId,
+        '🎉 ATLAS is *completely free* right now — no payment needed!',
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+    if (await isPremium(user)) {
+      await telegramClient.sendMessage(bot, chatId,
+        '⭐ You already have *ATLAS Pro*!', { parse_mode: 'Markdown' });
+      return true;
+    }
+    if (!dodo.enabled()) {
+      await telegramClient.sendMessage(bot, chatId,
+        '💳 Card payments are coming soon! For now, Indian users can pay via /upgrade (UPI).');
+      return true;
+    }
+    const url = await dodo.createCheckout(telegramId);
+    if (!url) {
+      await telegramClient.sendMessage(bot, chatId,
+        '😅 Could not create a checkout link right now — please try again in a bit.');
+      return true;
+    }
+    await telegramClient.sendMessage(bot, chatId,
+      `⭐ *ATLAS Pro* — $9.99/month\n\n` +
+      `Pay securely by card (Visa/Mastercard/Amex, any currency):`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '💳 Pay with card', url }]] },
+      });
     return true;
   },
 
