@@ -40,7 +40,15 @@ const premiumCommands = {
   // /makecoupon CODE [days]  (admin-only; lifetime founding coupon if days omitted)
   async handleMakeCoupon(bot, chatId, telegramId, args) {
     if (!isAdmin(telegramId)) return false;
-    const [code, days] = (args || '').trim().split(/\s+/);
+    // days is a trailing number if present; everything before it is the code.
+    // Any spaces the admin fat-fingers into the code get stripped so it matches
+    // what /redeem will accept (both sides remove whitespace).
+    const parts = (args || '').trim().split(/\s+/);
+    let days = null;
+    if (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1])) {
+      days = parts.pop();
+    }
+    const code = parts.join('');
     if (!code) {
       await telegramClient.sendMessage(bot, chatId, 'Usage: /makecoupon CODE [days]\nOmit days for lifetime founding coupon.');
       return true;
@@ -86,7 +94,9 @@ const premiumCommands = {
 
   // /redeem CODE  (any user; OTP-style single use, atomic)
   async handleRedeem(bot, chatId, telegramId, args) {
-    const code = (args || '').trim();
+    // Strip ALL whitespace: codes never contain spaces, so "ABC 123" typed
+    // with a stray space collapses to "ABC123" and still matches.
+    const code = (args || '').replace(/\s+/g, '');
     if (!code) {
       await telegramClient.sendMessage(bot, chatId, 'Usage: /redeem YOURCODE');
       return true;

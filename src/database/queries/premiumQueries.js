@@ -1,6 +1,12 @@
 // src/database/queries/premiumQueries.js
 const { supabase } = require('../../config/supabase');
 
+// Canonical coupon form: no whitespace, uppercase. Applied on BOTH create and
+// redeem so a code stored one way always matches a code typed another way.
+function normalizeCode(code) {
+  return String(code || '').replace(/\s+/g, '').toUpperCase();
+}
+
 const premiumQueries = {
   async setPaymentsEnabled(on) {
     const { error } = await supabase
@@ -24,7 +30,7 @@ const premiumQueries = {
     const { data, error } = await supabase
       .from('coupons')
       .update({ redeemed_by: telegramId, redeemed_at: new Date().toISOString() })
-      .eq('code', code.trim().toUpperCase())
+      .eq('code', normalizeCode(code))
       .is('redeemed_by', null)
       .select()
       .single();
@@ -34,7 +40,7 @@ const premiumQueries = {
 
   async createCoupon(code, grantsTier = 'founding', durationDays = null) {
     const { error } = await supabase.from('coupons').insert({
-      code: code.trim().toUpperCase(), grants_tier: grantsTier, duration_days: durationDays,
+      code: normalizeCode(code), grants_tier: grantsTier, duration_days: durationDays,
     });
     if (error) throw error;
   },
