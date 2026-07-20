@@ -21,16 +21,29 @@ const feedbackCommands = {
         'Bugs, annoyances, ideas, praise — everything helps ATLAS get better.');
       return;
     }
-    const username = (user && user.username) || null;
+    // Live identity from Telegram itself — the DB row's username can be null
+    // or stale (set once at signup); getChat is always current.
+    let username = (user && user.username) || null;
+    let displayName = '';
+    try {
+      const chat = await bot.getChat(telegramId);
+      username = chat.username || username;
+      displayName = [chat.first_name, chat.last_name].filter(Boolean).join(' ');
+    } catch { /* keep DB fallback */ }
     const row = await feedbackQueries.addFeedback(telegramId, username, text);
 
     // Real-time forward to the founder's own Telegram. Also fires when the
     // admin tests /feedback themselves, so the pipeline is visibly working.
     const admin = adminId();
     if (admin) {
+      const who = [
+        displayName || null,
+        username ? `@${username}` : null,
+        `id:${telegramId}`,
+      ].filter(Boolean).join(' · ');
       try {
         await telegramClient.sendMessage(bot, admin,
-          `📣 *Feedback #${row.id}*\nFrom: ${telegramId}${username ? ` (@${username})` : ''}\n\n${text}`,
+          `📣 *Feedback #${row.id}*\nFrom: ${who}\n\n${text}`,
           { parse_mode: 'Markdown' });
       } catch (err) {
         logger.warn('Feedback admin forward failed:', err.message);

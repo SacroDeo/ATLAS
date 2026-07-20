@@ -103,7 +103,19 @@ const premiumCommands = {
     }
     const coupon = await premiumQueries.redeemCoupon(code, telegramId);
     if (!coupon) {
-      await telegramClient.sendMessage(bot, chatId, '❌ That code is invalid or has already been used.');
+      // Tell the user (and the debugging founder) exactly WHY it failed.
+      const existing = await premiumQueries.getCoupon(code);
+      if (!existing) {
+        await telegramClient.sendMessage(bot, chatId,
+          '❌ That code doesn\'t exist. Check the spelling — spaces and lowercase are fine, but every letter matters.');
+      } else if (String(existing.redeemed_by) === String(telegramId)) {
+        await telegramClient.sendMessage(bot, chatId,
+          `✅ Relax — *you already redeemed this code* on ${new Date(existing.redeemed_at).toLocaleDateString('en-IN')}. Your ${existing.grants_tier === 'founding' ? 'lifetime Pro' : 'Pro'} is active. Codes work exactly once.`,
+          { parse_mode: 'Markdown' });
+      } else {
+        await telegramClient.sendMessage(bot, chatId,
+          '❌ This code has already been used by someone else. Each code works exactly once.');
+      }
       return true;
     }
     const until = coupon.duration_days
@@ -178,6 +190,27 @@ const premiumCommands = {
         `⭐ *ATLAS Pro* — ₹${PRICE_INR}/month\n\nPayment details are being set up — check back soon!`,
         { parse_mode: 'Markdown' });
     }
+    return true;
+  },
+
+  // /couponlist — admin-only coupon ledger: every code, its status, who
+  // redeemed it and when. This IS the "proof and record" of coupons given.
+  async handleCouponList(bot, chatId, telegramId) {
+    if (!isAdmin(telegramId)) return false;
+    const coupons = await premiumQueries.listCoupons();
+    if (!coupons.length) {
+      await telegramClient.sendMessage(bot, chatId, 'No coupons created yet. Use /makecoupon CODE');
+      return true;
+    }
+    const lines = coupons.map((c) => {
+      const life = c.duration_days ? `${c.duration_days}d` : 'lifetime';
+      return c.redeemed_by
+        ? `✅ ${c.code} (${life}) → ${c.redeemed_by} on ${new Date(c.redeemed_at).toLocaleDateString('en-IN')}`
+        : `🎟️ ${c.code} (${life}) — unused`;
+    });
+    await telegramClient.sendMessage(bot, chatId,
+      `📒 *Coupon ledger* (latest 50)\n\n${lines.join('\n')}`,
+      { parse_mode: 'Markdown' });
     return true;
   },
 

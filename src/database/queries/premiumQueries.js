@@ -38,6 +38,27 @@ const premiumQueries = {
     return data; // null = invalid or already used
   },
 
+  // For diagnosing a failed redeem: does the code exist, and is it spent?
+  async getCoupon(code) {
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('*')
+      .eq('code', normalizeCode(code))
+      .single();
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
+  async listCoupons() {
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return data || [];
+  },
+
   async createCoupon(code, grantsTier = 'founding', durationDays = null) {
     const { error } = await supabase.from('coupons').insert({
       code: normalizeCode(code), grants_tier: grantsTier, duration_days: durationDays,

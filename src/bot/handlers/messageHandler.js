@@ -1179,6 +1179,12 @@ Return ONLY valid JSON:
         await premiumCommands.handleRedeem(this.bot, chatId, telegramId, commandArgs);
         break;
       }
+      case '/couponlist': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handleCouponList(this.bot, chatId, telegramId)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
       case '/upgrade': {
         const { premiumCommands } = require('../commands/premiumCommands');
         await premiumCommands.handleUpgrade(this.bot, chatId, telegramId, user);
