@@ -1194,6 +1194,11 @@ Return ONLY valid JSON:
         await feedbackCommands.handleFeedback(this.bot, chatId, telegramId, commandArgs, user);
         break;
       }
+      case '/guide': {
+        const { feedbackCommands } = require('../commands/feedbackCommands');
+        await feedbackCommands.handleGuide(this.bot, chatId);
+        break;
+      }
       case '/betastats': {
         const { feedbackCommands } = require('../commands/feedbackCommands');
         if (await feedbackCommands.handleBetaStats(this.bot, chatId, telegramId)) break;

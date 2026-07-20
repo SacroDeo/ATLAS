@@ -24,9 +24,10 @@ const feedbackCommands = {
     const username = (user && user.username) || null;
     const row = await feedbackQueries.addFeedback(telegramId, username, text);
 
-    // Real-time forward to the founder's own Telegram.
+    // Real-time forward to the founder's own Telegram. Also fires when the
+    // admin tests /feedback themselves, so the pipeline is visibly working.
     const admin = adminId();
-    if (admin && String(admin) !== String(telegramId)) {
+    if (admin) {
       try {
         await telegramClient.sendMessage(bot, admin,
           `📣 *Feedback #${row.id}*\nFrom: ${telegramId}${username ? ` (@${username})` : ''}\n\n${text}`,
@@ -37,6 +38,48 @@ const feedbackCommands = {
     }
     await telegramClient.sendMessage(bot, chatId,
       '🙏 Got it — sent straight to the builder. Thank you for shaping ATLAS!');
+  },
+
+  // /guide — the detailed how-to-use manual, inside the bot itself.
+  // Plain Markdown (not V2) to avoid escaping every punctuation mark.
+  async handleGuide(bot, chatId) {
+    await telegramClient.sendMessage(bot, chatId,
+      `📖 *How to use ATLAS — the full guide*\n\n` +
+
+      `*1️⃣ Getting started*\n` +
+      `Press /start and answer the onboarding questions — your goal, your level, ` +
+      `when you want your tasks each morning. ATLAS builds you a roadmap and starts coaching.\n\n` +
+
+      `*2️⃣ Your daily loop*\n` +
+      `• Every morning (your timezone) ATLAS sends your tasks for the day\n` +
+      `• Tap /start anytime to see them as ✅ buttons — tap to complete\n` +
+      `• /today shows what's left, /progress shows today's completion + streak\n` +
+      `• Complete tasks daily to build your 🔥 streak — ATLAS notices when you slip\n\n` +
+
+      `*3️⃣ Just talk to it*\n` +
+      `No commands needed — type naturally:\n` +
+      `_"add a task to revise SQL joins"_ · _"delete task 3"_ · _"show my goal"_ · ` +
+      `_"I'm feeling stuck today"_\n` +
+      `ATLAS understands, acts, and remembers your history across weeks.\n\n` +
+
+      `*4️⃣ Reviews & stats*\n` +
+      `• /stats — your week in numbers\n` +
+      `• /review — AI retrospective of your week\n` +
+      `• /roadmap — see or update your full learning roadmap\n\n` +
+
+      `*5️⃣ Web dashboard*\n` +
+      `/dashboard opens your charts in the browser (sign in with Telegram, or ` +
+      `/linkweb to connect Google sign-in).\n\n` +
+
+      `*6️⃣ Beta tester duties* 🏆\n` +
+      `• Use ATLAS for real, most days\n` +
+      `• Anything annoying, broken, or great → /feedback your thought — it lands ` +
+      `directly with the builder\n` +
+      `• Active testers earn *lifetime Pro, free, forever*\n\n` +
+
+      `⚠️ /reset wipes your profile and goal — only if you want to start over.\n\n` +
+      `Full command list: /help`,
+      { parse_mode: 'Markdown' });
   },
 
   async handleBetaStats(bot, chatId, telegramId) {
