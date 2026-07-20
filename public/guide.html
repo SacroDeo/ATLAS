@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATLAS Guide — How to use your AI goal assistant</title>
+<meta name="description" content="The complete manual for ATLAS: onboarding, daily tasks, natural-language commands, streaks, reviews, dashboard, and beta tester guide.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #060a13; --glass: rgba(255,255,255,.045); --edge: rgba(255,255,255,.09);
+    --edge-bright: rgba(255,255,255,.16); --text: #eef2fa; --muted: #93a0b8;
+    --teal: #5eead4; --violet: #a78bfa; --amber: #fbbf24; --r: 20px;
+    --font-body: 'Space Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--ink); color: var(--text); font-family: var(--font-body); line-height: 1.65; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 80px; }
+  header { padding: 48px 0 8px; }
+  header a.back { color: var(--muted); text-decoration: none; font-size: .9rem; }
+  header a.back:hover { color: var(--teal); }
+  h1 { font-size: 2.2rem; margin: 12px 0 6px; }
+  .sub { color: var(--muted); margin-bottom: 40px; }
+  h2 { font-size: 1.35rem; margin: 44px 0 14px; color: var(--teal); }
+  h3 { font-size: 1.05rem; margin: 22px 0 8px; color: var(--violet); }
+  p, li { color: var(--muted); }
+  strong { color: var(--text); }
+  ul, ol { margin: 8px 0 8px 22px; }
+  li { margin-bottom: 6px; }
+  code { font-family: var(--font-mono); background: var(--glass); border: 1px solid var(--edge);
+         border-radius: 6px; padding: 1px 7px; font-size: .88em; color: var(--teal); }
+  .card { background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r); padding: 22px 26px; margin: 14px 0; }
+  .say { font-family: var(--font-mono); font-size: .88rem; color: var(--text);
+         background: var(--glass); border: 1px solid var(--edge); border-radius: 10px;
+         padding: 8px 14px; margin: 6px 0; display: block; }
+  .say::before { content: "💬 "; }
+  .note { border-left: 3px solid var(--amber); padding: 10px 16px; margin: 14px 0; background: var(--glass); border-radius: 0 12px 12px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--edge); color: var(--muted); vertical-align: top; }
+  td:first-child { font-family: var(--font-mono); color: var(--teal); white-space: nowrap; }
+  .cta { display: inline-block; margin-top: 28px; background: var(--teal); color: var(--ink);
+         font-weight: 600; text-decoration: none; padding: 12px 26px; border-radius: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <a class="back" href="/">← atlas home</a>
+  <h1>📖 The ATLAS Guide</h1>
+  <p class="sub">Everything you can do with your AI personal goal assistant — in 5 minutes.</p>
+</header>
+
+<h2>1. Getting started</h2>
+<div class="card">
+  <ol>
+    <li>Open <a href="https://t.me/AtlasGrowbot" style="color:var(--teal)">@AtlasGrowbot</a> on Telegram and press <strong>Start</strong></li>
+    <li>Answer the onboarding questions — your <strong>goal</strong>, your current <strong>level</strong>, and <strong>when you want your tasks</strong> each morning (your local timezone)</li>
+    <li>ATLAS builds your <strong>personal roadmap</strong> and starts coaching. That's it — you're live.</li>
+  </ol>
+  <p style="margin-top:8px">Have your own plan already? You can paste a <strong>custom roadmap</strong> instead and ATLAS will follow yours.</p>
+</div>
+
+<h2>2. Your daily loop</h2>
+<div class="card">
+  <ul>
+    <li><strong>Every morning</strong>, ATLAS sends the day's tasks, generated from your roadmap — at the hour you chose, in your timezone</li>
+    <li>Tap <code>/start</code> anytime to see today's tasks as <strong>✅ tappable buttons</strong> — tap one to mark it complete</li>
+    <li><code>/today</code> — how many missions remain today</li>
+    <li><code>/progress</code> — today's completion + your current 🔥 streak</li>
+    <li>Complete tasks daily to grow the streak. Miss a day and ATLAS checks in on you — it notices when you go quiet.</li>
+  </ul>
+</div>
+
+<h2>3. Just talk to it — no commands needed</h2>
+<p>ATLAS understands natural language. Type what you want, like you'd text a friend:</p>
+<div class="card">
+  <h3>Manage tasks</h3>
+  <span class="say">add a task to revise SQL joins</span>
+  <span class="say">add a task for tomorrow: prepare demo slides</span>
+  <span class="say">delete task 3</span>
+  <span class="say">change task 2 to "read chapter 5 instead"</span>
+  <span class="say">show my tasks</span>
+  <h3>Manage your goal</h3>
+  <span class="say">show my goal</span>
+  <span class="say">update my goal — I want to focus on backend now</span>
+  <span class="say">show my roadmap</span>
+  <h3>Get support</h3>
+  <span class="say">I'm feeling stuck and unmotivated today</span>
+  <span class="say">explain what a REST API is</span>
+  <p style="margin-top:10px">ATLAS <strong>remembers your history</strong> — your goals, struggles, and wins from past weeks shape how it coaches you. Sometimes it answers a question with a question: that's <strong>Socratic mode</strong>, checking you actually understood.</p>
+</div>
+
+<h2>4. Reminders &amp; check-ins</h2>
+<div class="card">
+  <ul>
+    <li><strong>Morning delivery</strong> — your tasks arrive automatically at your chosen hour</li>
+    <li><strong>Check-ins through the day</strong> — ATLAS nudges you about unfinished tasks</li>
+    <li><strong>Inactivity pings</strong> — vanish for a few days and ATLAS reaches out</li>
+  </ul>
+</div>
+
+<h2>5. Reviews &amp; stats</h2>
+<table>
+  <tr><td>/stats</td><td>Your week in numbers — completion rate, streak, momentum</td></tr>
+  <tr><td>/review</td><td>Your weekly review: what went well, what slipped, what to adjust</td></tr>
+  <tr><td>/roadmap</td><td>View your full roadmap and where you are on it</td></tr>
+  <tr><td>/dashboard</td><td>Web dashboard — charts &amp; history in your browser (sign in with Telegram)</td></tr>
+  <tr><td>/linkweb</td><td>One-time code to link Google sign-in on the web</td></tr>
+</table>
+
+<h2>6. All commands</h2>
+<table>
+  <tr><td>/start</td><td>Today's tasks as tappable buttons</td></tr>
+  <tr><td>/today</td><td>Missions remaining today</td></tr>
+  <tr><td>/progress</td><td>Today's completion and streak</td></tr>
+  <tr><td>/stats</td><td>This week's statistics</td></tr>
+  <tr><td>/review</td><td>Your weekly review</td></tr>
+  <tr><td>/goal</td><td>See your goal</td></tr>
+  <tr><td>/roadmap</td><td>Your learning roadmap</td></tr>
+  <tr><td>/dashboard</td><td>Open the web dashboard</td></tr>
+  <tr><td>/guide</td><td>This manual, inside the bot</td></tr>
+  <tr><td>/feedback</td><td>Send a thought or bug report to the builder</td></tr>
+  <tr><td>/help</td><td>Command list anytime</td></tr>
+  <tr><td>/reset</td><td>⚠️ Wipes your profile &amp; goal — fresh start only</td></tr>
+</table>
+
+<h2>7. Beta testers — your mission 🏆</h2>
+<div class="card">
+  <p><strong>The deal:</strong> use ATLAS for real for 3–4 weeks, answer 3 tiny questions each week, and earn <strong>lifetime ATLAS Pro — free, forever</strong> as a Founding Tester.</p>
+  <ul>
+    <li>Set a <strong>real goal</strong> you actually care about — fake goals give fake feedback</li>
+    <li>Whenever something annoys, confuses, breaks, or delights you → <code>/feedback your thought</code> right in the bot. Ten tiny feedbacks beat one essay.</li>
+    <li>Things we especially want you to poke: onboarding clarity · task quality · whether the chat feels supportive or naggy · streaks · weekly review usefulness</li>
+    <li>Founding status is <strong>earned by activity</strong> — the logs decide, not the group membership 😉</li>
+  </ul>
+</div>
+
+<div class="note"><strong>Beta note:</strong> during beta, <strong>everything is free</strong> — every feature unlocked, no payments, no limits. That's the whole point: break it, stretch it, tell us everything.</div>
+
+<a class="cta" href="https://t.me/AtlasGrowbot">🚀 Open ATLAS on Telegram</a>
+</div>
+</body>
+</html>
