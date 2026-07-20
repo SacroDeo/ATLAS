@@ -158,17 +158,25 @@ const premiumCommands = {
         { parse_mode: 'Markdown' });
       return true;
     }
-    const upiId = process.env.UPI_ID; // e.g. yourname@okhdfcbank
-    const payLine = upiId
-      ? `Pay ₹${PRICE_INR} to UPI ID: \`${upiId}\`\n(any UPI app — GPay, PhonePe, Paytm)`
-      : `Payment details are being set up — check back soon!`;
-    await telegramClient.sendMessage(bot, chatId,
+    // QR image, not a UPI ID string — a raw UPI ID exposes the owner's phone
+    // number as copyable text; the QR keeps it scannable-only.
+    const fs = require('fs');
+    const path = require('path');
+    const qrPath = path.join(__dirname, '../../../assets/upi-qr.png');
+    const caption =
       `⭐ *ATLAS Pro* — ₹${PRICE_INR}/month\n\n` +
       `• Unlimited goals\n• Full long-term memory\n• Deep weekly reviews\n• Priority AI\n\n` +
-      `${payLine}\n\n` +
+      `Scan the QR with any UPI app (GPay, PhonePe, Paytm) and pay ₹${PRICE_INR}\n\n` +
       `Then send: /paid YOUR_UPI_REFERENCE\nPro activates within a few hours 🚀\n\n` +
-      `Have a coupon? /redeem CODE`,
-      { parse_mode: 'Markdown' });
+      `Have a coupon? /redeem CODE`;
+    if (fs.existsSync(qrPath)) {
+      await bot.sendPhoto(chatId, qrPath, { caption, parse_mode: 'Markdown' });
+    } else {
+      // QR not uploaded yet — never show a broken storefront.
+      await telegramClient.sendMessage(bot, chatId,
+        `⭐ *ATLAS Pro* — ₹${PRICE_INR}/month\n\nPayment details are being set up — check back soon!`,
+        { parse_mode: 'Markdown' });
+    }
     return true;
   },
 
