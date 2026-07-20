@@ -1189,6 +1189,17 @@ Return ONLY valid JSON:
         await premiumCommands.handlePayCard(this.bot, chatId, telegramId, user);
         break;
       }
+      case '/feedback': {
+        const { feedbackCommands } = require('../commands/feedbackCommands');
+        await feedbackCommands.handleFeedback(this.bot, chatId, telegramId, commandArgs, user);
+        break;
+      }
+      case '/betastats': {
+        const { feedbackCommands } = require('../commands/feedbackCommands');
+        if (await feedbackCommands.handleBetaStats(this.bot, chatId, telegramId)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
       case '/paid': {
         const { premiumCommands } = require('../commands/premiumCommands');
         await premiumCommands.handlePaid(this.bot, chatId, telegramId, commandArgs, user);

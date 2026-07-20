@@ -19,6 +19,7 @@ const COMMANDS = [
   { cmd: '/roadmap',  desc: 'Your learning roadmap' },
   { cmd: '/dashboard', desc: 'Open your web dashboard with charts and stats' },
   { cmd: '/linkweb',  desc: 'Get a code to link Google sign in on the web' },
+  { cmd: '/feedback', desc: 'Send a thought or bug report to the builder' },
   { cmd: '/help',     desc: 'Show this command list anytime' },
   { cmd: '/reset',    desc: 'Reset your profile' },
 ];
