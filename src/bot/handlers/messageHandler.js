@@ -1039,7 +1039,11 @@ Return ONLY valid JSON:
   async handleCommand(chatId, telegramId, command, user) {
     // Normalize "/start@AtlasGrowbot" (group syntax) and "/today extra args"
     // to the bare command — exact-match switching treated them as unknown.
-    command = String(command).trim().split(/\s+/)[0].split('@')[0].toLowerCase();
+    // Premium commands (/redeem CODE, /paid REF, admin tools) need the args,
+    // so capture everything after the command word before stripping.
+    const rawText = String(command).trim();
+    const commandArgs = rawText.split(/\s+/).slice(1).join(' ');
+    command = rawText.split(/\s+/)[0].split('@')[0].toLowerCase();
 
     const commandsRequiringTaskMode = ['/today', '/progress', '/stats', '/review'];
     if (!user.task_mode && commandsRequiringTaskMode.includes(command)) {
@@ -1139,6 +1143,37 @@ Return ONLY valid JSON:
       case '/reset':
         await this.handleReset(chatId, user);
         break;
+      // ── Premium & payments ────────────────────────────────────────────
+      // Admin commands return false for non-admins and fall through to the
+      // unknown-command reply, so their existence stays invisible.
+      case '/payments': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handlePaymentsToggle(this.bot, chatId, telegramId, commandArgs)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
+      case '/makecoupon': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handleMakeCoupon(this.bot, chatId, telegramId, commandArgs)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
+      case '/verifypay': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handleVerifyPay(this.bot, chatId, telegramId, commandArgs)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
+      case '/redeem': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        await premiumCommands.handleRedeem(this.bot, chatId, telegramId, commandArgs);
+        break;
+      }
+      case '/paid': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        await premiumCommands.handlePaid(this.bot, chatId, telegramId, commandArgs, user);
+        break;
+      }
       default:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
     }
