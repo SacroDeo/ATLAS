@@ -1179,6 +1179,11 @@ Return ONLY valid JSON:
         await premiumCommands.handleRedeem(this.bot, chatId, telegramId, commandArgs);
         break;
       }
+      case '/upgrade': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        await premiumCommands.handleUpgrade(this.bot, chatId, telegramId, user);
+        break;
+      }
       case '/paid': {
         const { premiumCommands } = require('../commands/premiumCommands');
         await premiumCommands.handlePaid(this.bot, chatId, telegramId, commandArgs, user);

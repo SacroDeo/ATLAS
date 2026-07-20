@@ -141,6 +141,37 @@ const premiumCommands = {
     return true;
   },
 
+  // /upgrade — the storefront. Shows price + UPI payment instructions.
+  // Payments OFF → tells the user ATLAS is fully free right now.
+  // Already premium → congratulates instead of asking for money.
+  async handleUpgrade(bot, chatId, telegramId, user) {
+    const { isPremium } = require('../../services/premium/entitlements');
+    if (!(await paymentsEnabled())) {
+      await telegramClient.sendMessage(bot, chatId,
+        '🎉 Good news — ATLAS is *completely free* right now.\nAll features, no payment needed. Enjoy!',
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+    if (await isPremium(user)) {
+      await telegramClient.sendMessage(bot, chatId,
+        '⭐ You already have *ATLAS Pro*. Nothing to upgrade — go crush your goals!',
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+    const upiId = process.env.UPI_ID; // e.g. yourname@okhdfcbank
+    const payLine = upiId
+      ? `Pay ₹${PRICE_INR} to UPI ID: \`${upiId}\`\n(any UPI app — GPay, PhonePe, Paytm)`
+      : `Payment details are being set up — check back soon!`;
+    await telegramClient.sendMessage(bot, chatId,
+      `⭐ *ATLAS Pro* — ₹${PRICE_INR}/month\n\n` +
+      `• Unlimited goals\n• Full long-term memory\n• Deep weekly reviews\n• Priority AI\n\n` +
+      `${payLine}\n\n` +
+      `Then send: /paid YOUR_UPI_REFERENCE\nPro activates within a few hours 🚀\n\n` +
+      `Have a coupon? /redeem CODE`,
+      { parse_mode: 'Markdown' });
+    return true;
+  },
+
   // Call before any Pro-gated feature. Returns true if a paywall was shown
   // (caller should stop). Never shows anything while payments are OFF.
   async maybeSendPaywall(bot, chatId, user, featureName) {
@@ -148,7 +179,7 @@ const premiumCommands = {
     await telegramClient.sendMessage(bot, chatId,
       `⭐ *${featureName}* is an ATLAS Pro feature\n\n` +
       `₹${PRICE_INR}/month — unlimited goals, full memory, deep reviews\n\n` +
-      `1. Pay ₹${PRICE_INR} via UPI (QR: use /upgrade)\n` +
+      `1. Tap /upgrade for payment details\n` +
       `2. Send: /paid YOUR_UPI_REFERENCE\n` +
       `3. Pro activates within a few hours 🚀\n\n` +
       `Have a coupon? /redeem CODE`,
