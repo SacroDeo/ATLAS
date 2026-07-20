@@ -1146,9 +1146,19 @@ Return ONLY valid JSON:
       // ── Premium & payments ────────────────────────────────────────────
       // Admin commands return false for non-admins and fall through to the
       // unknown-command reply, so their existence stays invisible.
-      case '/payments': {
+      // Space-free single-word aliases so the switch can't break on a fumbled
+      // space (e.g. "/payments on" mistyped). These map to the same handler.
+      case '/payments':
+      case '/paymentson':
+      case '/paymentsoff':
+      case '/paymentsstatus': {
         const { premiumCommands } = require('../commands/premiumCommands');
-        if (await premiumCommands.handlePaymentsToggle(this.bot, chatId, telegramId, commandArgs)) break;
+        // Derive the arg from the alias when there's no explicit one.
+        let pArgs = commandArgs;
+        if (command === '/paymentson') pArgs = 'on';
+        else if (command === '/paymentsoff') pArgs = 'off';
+        else if (command === '/paymentsstatus') pArgs = 'status';
+        if (await premiumCommands.handlePaymentsToggle(this.bot, chatId, telegramId, pArgs)) break;
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
         break;
       }

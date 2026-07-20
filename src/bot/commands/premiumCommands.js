@@ -31,7 +31,7 @@ const premiumCommands = {
     } else {
       const on = await paymentsEnabled();
       await telegramClient.sendMessage(bot, chatId,
-        `💳 Payments: *${on ? 'ON' : 'OFF'}*\n\nUse /payments on or /payments off`,
+        `💳 Payments: *${on ? 'ON' : 'OFF'}*\n\nTap one: /paymentson · /paymentsoff · /paymentsstatus`,
         { parse_mode: 'Markdown' });
     }
     return true;
@@ -50,7 +50,7 @@ const premiumCommands = {
     }
     const code = parts.join('');
     if (!code) {
-      await telegramClient.sendMessage(bot, chatId, 'Usage: /makecoupon CODE [days]\nOmit days for lifetime founding coupon.');
+      await telegramClient.sendMessage(bot, chatId, 'Usage: /makecoupon CODE [days]\nUse ONE word, no spaces — e.g. /makecoupon TESTERRAHUL\nOmit days for lifetime founding coupon.');
       return true;
     }
     try {
