@@ -80,6 +80,33 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       return;
     }
 
+    // DEFENSE-IN-DEPTH: only grant Pro for OUR product. The signature already
+    // proves the event is genuinely from Dodo, and our checkout binds a fixed
+    // DODO_PRODUCT_ID — but if a cheaper product is ever added, a low-value
+    // purchase carrying this same metadata must NOT unlock Pro. Bind the grant
+    // to the expected product id when Dodo includes it in the payload.
+    const expectedProduct = process.env.DODO_PRODUCT_ID;
+    const eventProduct =
+      data.product_id ||
+      (Array.isArray(data.product_cart) && data.product_cart[0] && data.product_cart[0].product_id) ||
+      null;
+    if (expectedProduct && eventProduct && String(eventProduct) !== String(expectedProduct)) {
+      logger.warn(`Dodo ${type}: product ${eventProduct} != expected ${expectedProduct} — NOT granting premium for ${telegramId}.`);
+      return;
+    }
+
+    // Log the amount for observability (confirms the real field name/value on
+    // your first live payment; set DODO_MIN_AMOUNT_CENTS afterward to enforce).
+    const amount = data.total_amount ?? data.amount ?? data.settlement_amount ?? null;
+    const minAmount = process.env.DODO_MIN_AMOUNT_CENTS
+      ? parseInt(process.env.DODO_MIN_AMOUNT_CENTS, 10)
+      : null;
+    if (minAmount != null && amount != null && Number(amount) < minAmount) {
+      logger.warn(`Dodo ${type}: amount ${amount} < min ${minAmount} — NOT granting premium for ${telegramId}.`);
+      return;
+    }
+    logger.info(`Dodo ${type}: amount=${amount} product=${eventProduct ?? 'n/a'} for ${telegramId}`);
+
     const until = new Date(Date.now() + GRANT_DAYS * 864e5).toISOString();
     await premiumQueries.setTier(Number(telegramId), 'premium', until);
     logger.info(`Dodo ${type}: premium granted to ${telegramId} until ${until}`);
