@@ -66,9 +66,18 @@ class MessageHandler {
   async _handleMessageInner(msg) {
     const chatId = msg.chat.id;
     const telegramId = msg.from.id;
-    const text = msg.text;
+    let text = msg.text;
 
     if (!text || text.trim() === '') return;
+
+    // INPUT CAP: Telegram already limits messages to ~4096 chars, but cap
+    // explicitly as defense-in-depth so an oversized paste can never balloon
+    // an AI prompt's token cost or slip past that platform limit if it ever
+    // changes. 4000 is comfortably above any legitimate goal/roadmap paste.
+    const MAX_INPUT_CHARS = 4000;
+    if (text.length > MAX_INPUT_CHARS) {
+      text = text.slice(0, MAX_INPUT_CHARS);
+    }
 
     try {
       const user = await userQueries.getUserByTelegramId(telegramId);
@@ -1022,7 +1031,7 @@ Return ONLY valid JSON:
           title: newTaskText,
           description: newTaskText,
           updated_at: new Date().toISOString(),
-        });
+        }, user.id);
         await telegramMessage.sendSafe(
           this.bot,
           chatId,

@@ -69,28 +69,25 @@ const taskQueries = {
     return data;
   },
 
-  async updateTask(taskId, updates) {
-    const { data, error } = await supabase
-      .from('tasks')
-      .update(updates)
-      .eq('id', taskId)
-      .select()
-      .single();
+  // userId is optional for backward-compat but SHOULD always be passed:
+  // when present the update is scoped to the owner, so a stray/forged taskId
+  // can never modify another user's task (defense-in-depth — callers already
+  // pre-select from the user's own tasks, this is the second lock).
+  async updateTask(taskId, updates, userId = null) {
+    let q = supabase.from('tasks').update(updates).eq('id', taskId);
+    if (userId != null) q = q.eq('user_id', userId);
+    const { data, error } = await q.select().single();
     if (error) throw error;
     return data;
   },
 
-  async deleteTask(taskId) {
-
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', taskId);
-
-  if (error) throw error;
-
-  return true;
-},
+  async deleteTask(taskId, userId = null) {
+    let q = supabase.from('tasks').delete().eq('id', taskId);
+    if (userId != null) q = q.eq('user_id', userId);
+    const { error } = await q;
+    if (error) throw error;
+    return true;
+  },
 
   async deleteTasksBulk(userId, taskIds) {
 

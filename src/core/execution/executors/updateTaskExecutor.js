@@ -33,7 +33,7 @@ const today = userNow.toISOString().split('T')[0];    const tasks = await taskQu
       // Full text goes in the description; title gets the truncated form.
       description: new_title,
       updated_at: new Date().toISOString(),
-    });
+    }, user.id);
 
     return {
       success: true,

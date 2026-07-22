@@ -10,6 +10,20 @@ class GenerateTasksExecutor {
   async execute(plan, context) {
     const user = context.user;
 
+    // COST GUARD: on-demand task generation is an expensive AI call. The
+    // hourly limiter existed but was never wired here, so a user could spam
+    // "generate tasks" up to the 8/min message cap (~480 AI calls/hour). Gate
+    // it at 5/hour. This does NOT affect the automatic morning delivery — that
+    // path uses dailyTaskGenerator, not this executor.
+    const rateLimiter = require('../../../services/ai/rateLimiter');
+    const genCheck = rateLimiter.checkTaskGeneration(user.telegram_id);
+    if (!genCheck.allowed) {
+      return {
+        success: false,
+        message: `⏳ You've generated tasks a lot this hour — take a breather and try again in ${rateLimiter.formatRetryTime(genCheck.retryAfterSeconds)}. Your existing tasks are still here; tap /start to see them.`,
+      };
+    }
+
     try {
       const stateManager = require('../../state/stateManager');
       const inlineKeyboards = require('../../../bot/keyboards/inlineKeyboards');

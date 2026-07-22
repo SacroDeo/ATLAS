@@ -59,7 +59,7 @@ const today = userNow.toISOString().split('T')[0];
       if (numbers.length === 1) {
         // Single delete — simple path
         const targetTask = tasks[numbers[0] - 1];
-        await taskQueries.deleteTask(targetTask.id);
+        await taskQueries.deleteTask(targetTask.id, userId);
         return {
           success: true,
           message: `✅ Deleted task ${numbers[0]}: "${targetTask.title}"`
@@ -76,7 +76,7 @@ const today = userNow.toISOString().split('T')[0];
         const currentTasks = await taskQueries.getDailyTasks(userId, today);
         if (!currentTasks[num - 1]) continue;
         const task = currentTasks[num - 1];
-        await taskQueries.deleteTask(task.id);
+        await taskQueries.deleteTask(task.id, userId);
         deleted.push(`${num}. "${task.title}"`);
       }
 
