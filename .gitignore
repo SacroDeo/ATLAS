@@ -39,3 +39,11 @@ DEPLOY_RENDER.md
 
 # Local tooling
 .tools/
+
+# Private business notes — never publish to the public repo
+premium-package.md
+pricing-notes.md
+resume-ai-first-draft.md
+founder-dms.md
+internship-hunt-prompt.md
+job-hunt-tracker.md
