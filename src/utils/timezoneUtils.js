@@ -214,23 +214,26 @@ const timezoneUtils = {
 
   const now = this.getCurrentTimeInZone(timezone);
   const timePart = String(preferredTime).substring(0, 5);
-  const [prefHour, prefMin] = timePart.split(':').map(Number);
+  let [prefHour, prefMin] = timePart.split(':').map(Number);
 
-  const nowHour = now.getHours();
-  const nowMin = now.getMinutes();
+  // NaN GUARD: a malformed/legacy preferred_time (e.g. "" , "8am", null)
+  // used to make prefHour/prefMin NaN, so every comparison below was false
+  // and the user NEVER received tasks — silently, with no error. Fall back
+  // to 08:00 rather than skip the user forever.
+  if (!Number.isInteger(prefHour) || prefHour < 0 || prefHour > 23) prefHour = 8;
+  if (!Number.isInteger(prefMin) || prefMin < 0 || prefMin > 59) prefMin = 0;
 
-  const nowTotalMins = nowHour * 60 + nowMin;
+  const nowTotalMins = now.getHours() * 60 + now.getMinutes();
   const prefTotalMins = prefHour * 60 + prefMin;
   const diff = nowTotalMins - prefTotalMins;
 
-  // Within 30-minute delivery window after preferred time
-  if (diff >= 0 && diff <= 30) return true;
-
-  // CATCH-UP: If preferred time has passed today (up to 8 hours late),
-  // still send — last_tasks_sent_date check in cron prevents double send
-  if (diff > 30 && diff <= 480) return true;
-
-  return false;
+  // Deliver any time from the preferred slot until the end of the user's
+  // local day. The previous 8-hour catch-up cap (diff <= 480) meant that if
+  // the process was asleep/down through a user's whole window (Render free
+  // tier spins down on inactivity), they were skipped for the entire day.
+  // The cron's last_tasks_sent_date + processingUsers guards make delivering
+  // late idempotent, so "better late than never" is safe and never double-sends.
+  return diff >= 0;
 },
 
   parseTimeInput(input) {
