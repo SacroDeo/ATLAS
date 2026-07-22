@@ -67,12 +67,18 @@ function verifyTelegramLogin(payload) {
   return fields;
 }
 
+// Pin the algorithm on both sign and verify. Without an explicit allow-list,
+// jwt.verify would accept any algorithm named in the token header — the basis
+// of algorithm-confusion attacks (e.g. a forged "alg":"none" token, or HS/RS
+// confusion). We only ever issue HS256, so we only ever accept HS256.
+const JWT_ALG = 'HS256';
+
 /** Mint a signed session token carrying the telegram_id. */
 function issueSession(telegramId) {
   return jwt.sign(
     { tid: String(telegramId) },
     config.dashboard.jwtSecret,
-    { expiresIn: SESSION_TTL }
+    { expiresIn: SESSION_TTL, algorithm: JWT_ALG }
   );
 }
 
@@ -100,7 +106,7 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
-    const decoded = jwt.verify(token, config.dashboard.jwtSecret);
+    const decoded = jwt.verify(token, config.dashboard.jwtSecret, { algorithms: [JWT_ALG] });
     req.telegramId = decoded.tid;
     next();
   } catch (err) {

@@ -20,11 +20,12 @@ setInterval(() => {
  */
 function rateLimit({ windowMs, max, name }) {
   return (req, res, next) => {
-    // Behind nginx/cloudflared the client IP is in X-Forwarded-For;
-    // fall back to the socket address locally.
-    const fwd = req.headers['x-forwarded-for'];
-    const ip = (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') ||
-      req.socket.remoteAddress || 'unknown';
+    // Use Express's resolved req.ip. With `trust proxy` set to a fixed hop
+    // count in server.js, this is the real client IP and CANNOT be spoofed
+    // by a client-supplied X-Forwarded-For header (Express only honors the
+    // trusted hop). Reading the raw header here was bypassable: a client
+    // could rotate fake IPs to get a fresh bucket on every request.
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const key = `${name}:${ip}`;
     const now = Date.now();
 

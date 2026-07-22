@@ -35,6 +35,14 @@ const { checkinCron } = require('./src/cron/checkinCron');
 
 const app = express();
 
+// Behind Render's/nginx's proxy the real client IP is in X-Forwarded-For.
+// Trust exactly ONE proxy hop so req.ip is the true client — without this,
+// the rate limiter either trusts a spoofable raw header or sees only the
+// proxy's IP. '1' (not `true`) means "trust one hop", which is what a single
+// reverse proxy in front of us actually is; trusting all hops would let a
+// client forge X-Forwarded-For again.
+app.set('trust proxy', 1);
+
 // Dodo Payments webhook needs the RAW body for signature verification, so it
 // mounts BEFORE express.json() — the route applies express.raw() itself.
 app.use('/webhooks/dodo', require('./src/routes/dodoWebhook'));

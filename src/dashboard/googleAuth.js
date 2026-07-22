@@ -13,6 +13,8 @@ const authQueries = require('../database/queries/authQueries');
 
 const PENDING_COOKIE = 'atlas_pending_link';
 const STATE_TTL = '10m';
+// Pin JWT algorithm on all sign/verify — see telegramAuth.js for rationale.
+const JWT_ALG = 'HS256';
 
 function googleEnabled() {
   return Boolean(config.dashboard.google.clientId && config.dashboard.google.clientSecret);
@@ -26,6 +28,7 @@ function redirectUri() {
 function buildAuthUrl() {
   const state = jwt.sign({ purpose: 'oauth_state' }, config.dashboard.jwtSecret, {
     expiresIn: STATE_TTL,
+    algorithm: JWT_ALG,
   });
   const params = new URLSearchParams({
     client_id: config.dashboard.google.clientId,
@@ -39,7 +42,7 @@ function buildAuthUrl() {
 }
 
 function verifyState(state) {
-  const decoded = jwt.verify(state, config.dashboard.jwtSecret); // throws if bad/expired
+  const decoded = jwt.verify(state, config.dashboard.jwtSecret, { algorithms: [JWT_ALG] }); // throws if bad/expired
   if (decoded.purpose !== 'oauth_state') throw new Error('Wrong state token');
 }
 
@@ -77,7 +80,7 @@ function setPendingCookie(res, identityId) {
   const token = jwt.sign(
     { purpose: 'pending_link', identityId },
     config.dashboard.jwtSecret,
-    { expiresIn: '30m' }
+    { expiresIn: '30m', algorithm: JWT_ALG }
   );
   res.cookie(PENDING_COOKIE, token, {
     httpOnly: true,
@@ -92,7 +95,7 @@ function readPendingCookie(req) {
   const token = req.cookies?.[PENDING_COOKIE];
   if (!token) return null;
   try {
-    const decoded = jwt.verify(token, config.dashboard.jwtSecret);
+    const decoded = jwt.verify(token, config.dashboard.jwtSecret, { algorithms: [JWT_ALG] });
     if (decoded.purpose !== 'pending_link') return null;
     return decoded.identityId;
   } catch {
