@@ -1171,6 +1171,12 @@ Return ONLY valid JSON:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
         break;
       }
+      case '/paymentsreset': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handlePaymentsReset(this.bot, chatId, telegramId)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
       case '/makecoupon': {
         const { premiumCommands } = require('../commands/premiumCommands');
         if (await premiumCommands.handleMakeCoupon(this.bot, chatId, telegramId, commandArgs)) break;

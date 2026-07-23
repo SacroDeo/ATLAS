@@ -216,6 +216,24 @@ const premiumCommands = {
     return true;
   },
 
+  // /paymentsreset — admin-only dev command: turn payments ON + reset your own
+  // tier to 'free' so you can test the real /upgrade flow as a normal user would
+  // see it. Clears the entitlements cache so the change is instant.
+  async handlePaymentsReset(bot, chatId, telegramId) {
+    if (!isAdmin(telegramId)) return false;
+    await premiumQueries.setPaymentsEnabled(true);
+    await premiumQueries.setTier(telegramId, 'free', null);
+    invalidateSettingsCache();
+    await telegramClient.sendMessage(bot, chatId,
+      '🔄 *Payments reset for testing:*\n\n' +
+      '• Payments: ON\n' +
+      '• Your tier: free\n' +
+      '• Cache: cleared\n\n' +
+      'Try /upgrade now to see the real user flow.',
+      { parse_mode: 'Markdown' });
+    return true;
+  },
+
   // /upgrade — the storefront. Shows price + UPI payment instructions.
   // Payments OFF → tells the user ATLAS is fully free right now.
   // Already premium → congratulates instead of asking for money.
