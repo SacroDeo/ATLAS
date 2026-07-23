@@ -311,25 +311,49 @@ Never sound like a form. Never say "please provide". No bullet points.`,
           role: 'system',
           content: `You check whether a user's personal goal is specific enough to build a day-by-day task roadmap for it.
 
-A goal is UNCLEAR only when the domain/field/subject needed to plan tasks is missing:
-- "land an internship in 1 month" → unclear (internship in which field?)
-- "get a job by December" → unclear (what kind of job/role?)
-- "pass my exam in 2 weeks" → unclear (which exam/subject?)
-- "become a SOC Analyst in 6 months" → clear
-- "learn Python and build a project in 3 months" → clear
-- "lose 8kg by September" → clear (fitness — no field needed)
+A goal is UNCLEAR when critical information needed to plan is missing:
 
-Lean towards clear — only flag genuinely unplannable goals. Reply with ONLY JSON, nothing else:
+**UNCLEAR - Job/Career goals without domain/role:**
+- "land an internship in 1 month" → unclear (which field? software, marketing, finance?)
+- "get a job by December" → unclear (what kind of job?)
+- "find an internship within 1 month" → unclear (in which domain?)
+- "get hired soon" → unclear (what role/industry?)
+- "prepare my resume" → unclear (for which domain/role?)
+- "switch careers in 6 months" → unclear (to which field?)
+
+**UNCLEAR - Education goals without subject:**
+- "pass my exam in 2 weeks" → unclear (which exam/subject?)
+- "improve my grades" → unclear (which subject?)
+- "study for certification" → unclear (which certification?)
+
+**CLEAR - Specific role/domain mentioned:**
+- "become a SOC Analyst in 6 months" → clear (specific role)
+- "land a software engineering internship in 2 months" → clear (specific field)
+- "get a data analyst job by March" → clear (specific role)
+- "prepare for AWS certification in 3 months" → clear (specific cert)
+- "learn Python and build a project in 3 months" → clear (specific skill)
+- "lose 8kg by September" → clear (fitness goal, no field needed)
+
+**When unclear, ask specifically for the missing piece:**
+- Missing domain → "What field or domain are you targeting?"
+- Missing role → "What kind of role are you aiming for?"
+- Missing subject → "Which subject or exam?"
+
+Be strict about job/internship/career goals - they MUST specify the domain or role. Reply with ONLY JSON:
 {"clear": true}
 or
-{"clear": false, "question": "<ONE short, warm follow-up question asking for exactly the missing piece>"}`,
+{"clear": false, "question": "<ONE short, warm question asking for the missing info>"}`,
         },
         { role: 'user', content: goal },
       ];
-      const raw = await aiOrchestrator.execute(messages, { temperature: 0.1, maxTokens: 150 });
+      const raw = await aiOrchestrator.execute(messages, { temperature: 0.1, maxTokens: 200 });
       const match = raw.match(/\{[\s\S]*\}/);
-      if (!match) return { clear: true };
+      if (!match) {
+        logger.warn('Goal clarity check: no JSON found in response:', raw);
+        return { clear: true };
+      }
       const parsed = JSON.parse(match[0]);
+      logger.info(`Goal clarity check for "${goal}": ${parsed.clear ? 'CLEAR' : 'UNCLEAR'}`);
       return {
         clear: parsed.clear !== false,
         question: typeof parsed.question === 'string' ? parsed.question.slice(0, 300) : null,

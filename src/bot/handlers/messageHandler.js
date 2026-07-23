@@ -1225,6 +1225,12 @@ Return ONLY valid JSON:
         await premiumCommands.handlePaid(this.bot, chatId, telegramId, commandArgs, user);
         break;
       }
+      case '/resetpremium': {
+        const { premiumCommands } = require('../commands/premiumCommands');
+        if (await premiumCommands.handleResetPremium(this.bot, chatId, telegramId, commandArgs)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
       default:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
     }

@@ -6,12 +6,50 @@ const express = require('express');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 const premiumQueries = require('../database/queries/premiumQueries');
+const { supabase } = require('../config/supabase');
 
 const router = express.Router();
+
+// Rate limiting for webhook endpoint (prevents DoS on HMAC verification)
+const webhookRateLimits = new Map(); // Map<IP, { count, windowStart }>
+const WEBHOOK_MAX_PER_MINUTE = 100;
+const WEBHOOK_WINDOW_MS = 60 * 1000;
+
+function checkWebhookRateLimit(ip) {
+  const now = Date.now();
+  let entry = webhookRateLimits.get(ip);
+
+  if (!entry || now - entry.windowStart >= WEBHOOK_WINDOW_MS) {
+    entry = { count: 0, windowStart: now };
+  }
+
+  entry.count++;
+  webhookRateLimits.set(ip, entry);
+
+  if (entry.count > WEBHOOK_MAX_PER_MINUTE) {
+    const retryAfterSeconds = Math.ceil((WEBHOOK_WINDOW_MS - (now - entry.windowStart)) / 1000);
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  return { allowed: true };
+}
+
+// Cleanup stale rate limit entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of webhookRateLimits.entries()) {
+    if (now - entry.windowStart > WEBHOOK_WINDOW_MS * 2) {
+      webhookRateLimits.delete(ip);
+    }
+  }
+}, 2 * 60 * 1000);
 
 // Grant window per successful charge: 30 days + 5-day grace so a slightly
 // late renewal webhook doesn't lapse a paying subscriber.
 const GRANT_DAYS = 35;
+
+// Webhook timestamp tolerance (5 minutes) - prevents replay attacks
+const TIMESTAMP_TOLERANCE_SECONDS = 300;
 
 const PAID_EVENTS = new Set([
   'payment.succeeded',
@@ -40,6 +78,14 @@ function verifySignature(secret, msgId, timestamp, body, signatureHeader) {
 }
 
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
+  // Rate limiting check
+  const clientIp = req.ip;
+  const rateCheck = checkWebhookRateLimit(clientIp);
+  if (!rateCheck.allowed) {
+    logger.warn(`Webhook rate limit exceeded for IP ${clientIp}`);
+    return res.status(429).set('Retry-After', String(rateCheck.retryAfterSeconds)).send('rate limit exceeded');
+  }
+
   const secret = process.env.DODO_WEBHOOK_SECRET;
   if (!secret) {
     logger.warn('Dodo webhook hit but DODO_WEBHOOK_SECRET is not set — rejecting.');
@@ -47,13 +93,27 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
   }
 
   const body = req.body.toString('utf8');
-  const ok = verifySignature(
-    secret,
-    req.get('webhook-id'),
-    req.get('webhook-timestamp'),
-    body,
-    req.get('webhook-signature')
-  );
+  const msgId = req.get('webhook-id');
+  const msgTimestamp = req.get('webhook-timestamp');
+  const msgSignature = req.get('webhook-signature');
+
+  // Timestamp validation - prevent replay attacks
+  const timestampSeconds = parseInt(msgTimestamp, 10);
+  if (isNaN(timestampSeconds)) {
+    logger.warn('Dodo webhook: missing or invalid timestamp — rejecting.');
+    return res.status(400).send('invalid timestamp');
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const timeDiff = Math.abs(nowSeconds - timestampSeconds);
+
+  if (timeDiff > TIMESTAMP_TOLERANCE_SECONDS) {
+    logger.warn(`Dodo webhook: timestamp too old/future (${timeDiff}s diff) — rejecting replay attempt.`);
+    return res.status(401).send('timestamp out of range');
+  }
+
+  // Signature verification
+  const ok = verifySignature(secret, msgId, msgTimestamp, body, msgSignature);
   if (!ok) {
     logger.warn('Dodo webhook: bad signature — ignoring.');
     return res.status(401).send('bad signature');
@@ -64,6 +124,23 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     event = JSON.parse(body);
   } catch {
     return res.status(400).send('bad json');
+  }
+
+  // Idempotency check - prevent replay attacks
+  if (msgId) {
+    const { data: existing, error: checkError } = await supabase
+      .from('processed_webhook_events')
+      .select('id')
+      .eq('event_id', msgId)
+      .maybeSingle();
+
+    if (checkError) {
+      logger.error('Webhook idempotency check failed:', checkError.message);
+      // Continue processing on DB error (fail open for availability)
+    } else if (existing) {
+      logger.info(`Dodo webhook ${msgId}: already processed — idempotent skip.`);
+      return res.status(200).send('already processed');
+    }
   }
 
   // Always 200 fast on verified events; Dodo retries non-2xx.
@@ -110,6 +187,16 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     const until = new Date(Date.now() + GRANT_DAYS * 864e5).toISOString();
     await premiumQueries.setTier(Number(telegramId), 'premium', until);
     logger.info(`Dodo ${type}: premium granted to ${telegramId} until ${until}`);
+
+    // Record this event as processed (idempotency)
+    if (msgId) {
+      await supabase.from('processed_webhook_events').insert({
+        event_id: msgId,
+        event_type: type,
+        telegram_id: Number(telegramId),
+        processed_at: new Date().toISOString(),
+      });
+    }
 
     // Best-effort notifications; bot may not be ready during boot.
     try {

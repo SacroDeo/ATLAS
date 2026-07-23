@@ -11,12 +11,33 @@ const premiumQueries = require('../../database/queries/premiumQueries');
 const { paymentsEnabled, paywallVisible, invalidateSettingsCache } = require('../../services/premium/entitlements');
 const telegramClient = require('../../utils/telegram/telegramClient');
 const logger = require('../../utils/logger');
+const rateLimiter = require('../../services/ai/rateLimiter');
 
 const PRICE_INR = 49;
 
 function isAdmin(telegramId) {
   const adminId = config.telegram.adminId || process.env.ADMIN_TELEGRAM_ID;
-  return adminId && String(telegramId) === String(adminId);
+
+  // Fail closed if admin ID is not configured
+  if (!adminId) {
+    logger.error('SECURITY: ADMIN_TELEGRAM_ID not configured - admin commands disabled');
+    return false;
+  }
+
+  // Validate admin ID format (must be numeric)
+  if (!/^\d+$/.test(String(adminId))) {
+    logger.error('SECURITY: ADMIN_TELEGRAM_ID is invalid - must be numeric');
+    return false;
+  }
+
+  const isAuthorized = String(telegramId) === String(adminId);
+
+  // Log failed admin attempts for security monitoring
+  if (!isAuthorized && telegramId) {
+    logger.warn(`SECURITY: Non-admin ${telegramId} attempted admin action`);
+  }
+
+  return isAuthorized;
 }
 
 const premiumCommands = {
@@ -94,6 +115,15 @@ const premiumCommands = {
 
   // /redeem CODE  (any user; OTP-style single use, atomic)
   async handleRedeem(bot, chatId, telegramId, args) {
+    // Rate limiting to prevent coupon enumeration attacks
+    const rateCheck = rateLimiter.checkCouponAttempt(telegramId);
+    if (!rateCheck.allowed) {
+      await telegramClient.sendMessage(bot, chatId,
+        `⏳ Too many redemption attempts. Please wait ${rateLimiter.formatRetryTime(rateCheck.retryAfterSeconds)} before trying again.`);
+      logger.warn(`SECURITY: Coupon rate limit hit by ${telegramId}`);
+      return true;
+    }
+
     // Strip ALL whitespace: codes never contain spaces, so "ABC 123" typed
     // with a stray space collapses to "ABC123" and still matches.
     const code = (args || '').replace(/\s+/g, '');
@@ -103,25 +133,30 @@ const premiumCommands = {
     }
     const coupon = await premiumQueries.redeemCoupon(code, telegramId);
     if (!coupon) {
-      // Tell the user (and the debugging founder) exactly WHY it failed.
+      // Uniform error message to prevent enumeration - don't reveal if code exists
       const existing = await premiumQueries.getCoupon(code);
-      if (!existing) {
-        await telegramClient.sendMessage(bot, chatId,
-          '❌ That code doesn\'t exist. Check the spelling — spaces and lowercase are fine, but every letter matters.');
-      } else if (String(existing.redeemed_by) === String(telegramId)) {
-        await telegramClient.sendMessage(bot, chatId,
-          `✅ Relax — *you already redeemed this code* on ${new Date(existing.redeemed_at).toLocaleDateString('en-IN')}. Your ${existing.grants_tier === 'founding' ? 'lifetime Pro' : 'Pro'} is active. Codes work exactly once.`,
-          { parse_mode: 'Markdown' });
+
+      // Log for security monitoring
+      if (existing) {
+        if (String(existing.redeemed_by) === String(telegramId)) {
+          logger.info(`User ${telegramId} tried to re-redeem their own code ${code}`);
+        } else {
+          logger.warn(`SECURITY: User ${telegramId} attempted already-used code ${code}`);
+        }
       } else {
-        await telegramClient.sendMessage(bot, chatId,
-          '❌ This code has already been used by someone else. Each code works exactly once.');
+        logger.info(`User ${telegramId} tried invalid code ${code}`);
       }
+
+      // Generic error message prevents enumeration
+      await telegramClient.sendMessage(bot, chatId,
+        '❌ Invalid or unavailable code. Check the spelling and try again.');
       return true;
     }
     const until = coupon.duration_days
       ? new Date(Date.now() + coupon.duration_days * 864e5).toISOString()
       : null;
     await premiumQueries.setTier(telegramId, coupon.grants_tier, until);
+    logger.info(`User ${telegramId} successfully redeemed coupon ${code} (${coupon.grants_tier})`);
     await telegramClient.sendMessage(bot, chatId,
       coupon.grants_tier === 'founding'
         ? '🏆 *Founding Tester unlocked!*\n\nLifetime ATLAS Pro is yours. Thank you for building this with me.'
@@ -132,12 +167,40 @@ const premiumCommands = {
 
   // /paid UPI_REF  (any user; logs claim + alerts admin DM)
   async handlePaid(bot, chatId, telegramId, args, user) {
+    // Rate limiting to prevent spam attacks
+    const rateCheck = rateLimiter.checkPaymentClaim(telegramId);
+    if (!rateCheck.allowed) {
+      await telegramClient.sendMessage(bot, chatId,
+        `⏳ Too many payment claims. Please wait ${rateLimiter.formatRetryTime(rateCheck.retryAfterSeconds)} before trying again. If you've already submitted your payment, it's being verified.`);
+      logger.warn(`SECURITY: Payment claim rate limit hit by ${telegramId}`);
+      return true;
+    }
+
     const ref = (args || '').trim();
     if (!ref) {
       await telegramClient.sendMessage(bot, chatId, 'Usage: /paid YOUR_UPI_REFERENCE_NUMBER');
       return true;
     }
+
+    // Input validation to prevent injection attacks
+    if (ref.length < 6 || ref.length > 50) {
+      await telegramClient.sendMessage(bot, chatId,
+        '❌ Invalid UPI reference. It should be 6-50 characters long.');
+      logger.warn(`SECURITY: Invalid UPI ref length from ${telegramId}: ${ref.length} chars`);
+      return true;
+    }
+
+    // Only allow alphanumeric + basic symbols (no special chars that could be injection vectors)
+    if (!/^[a-zA-Z0-9\-_.]+$/.test(ref)) {
+      await telegramClient.sendMessage(bot, chatId,
+        '❌ Invalid UPI reference format. Use only letters, numbers, hyphens, underscores, and dots.');
+      logger.warn(`SECURITY: Invalid UPI ref format from ${telegramId}: ${ref}`);
+      return true;
+    }
+
     const row = await premiumQueries.logPayment(telegramId, PRICE_INR, ref);
+    logger.info(`Payment claim #${row.id} from ${telegramId}: ${ref}`);
+
     const adminId = config.telegram.adminId || process.env.ADMIN_TELEGRAM_ID;
     if (adminId) {
       try {
@@ -248,6 +311,40 @@ const premiumCommands = {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[{ text: '💳 Pay with card', url }]] },
       });
+    return true;
+  },
+
+  // /resetpremium [telegram_id] — admin-only; resets premium status for testing
+  // Without args, resets own premium. With telegram_id, resets that user's premium.
+  async handleResetPremium(bot, chatId, telegramId, args) {
+    if (!isAdmin(telegramId)) return false;
+
+    const targetId = (args || '').trim() || String(telegramId);
+
+    // Validate it's a numeric telegram ID
+    if (!/^\d+$/.test(targetId)) {
+      await telegramClient.sendMessage(bot, chatId,
+        'Invalid telegram ID. Usage: /resetpremium [TELEGRAM_ID]');
+      return true;
+    }
+
+    try {
+      // Reset premium tier
+      await premiumQueries.setTier(targetId, 'free', null);
+
+      logger.info(`Admin ${telegramId} reset premium for user ${targetId}`);
+
+      await telegramClient.sendMessage(bot, chatId,
+        `✅ Premium status reset for user ${targetId}\n\n` +
+        `Tier: free\nPremium until: null\n\n` +
+        `The user can now test /upgrade, /redeem, and payment flows.`,
+        { parse_mode: 'Markdown' });
+    } catch (err) {
+      logger.error(`Failed to reset premium for ${targetId}:`, err);
+      await telegramClient.sendMessage(bot, chatId,
+        `❌ Failed to reset premium: ${err.message}`);
+    }
+
     return true;
   },
 
