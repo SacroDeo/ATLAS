@@ -304,7 +304,7 @@ class MessageHandler {
       // So a user who never learned /help can still reach the command list by
       // just typing "help", "commands", "what can you do", etc.
       if (atlasCommands.isHelpRequest(text)) {
-        await this.showHelp(chatId);
+        await this.showHelp(chatId, telegramId);
         return;
       }
 
@@ -1106,7 +1106,7 @@ Return ONLY valid JSON:
         );
         break;
       case '/help':
-        await this.showHelp(chatId);
+        await this.showHelp(chatId, telegramId);
         break;
       case '/dashboard': {
         const config = require('../../config');
@@ -1307,13 +1307,13 @@ Return ONLY valid JSON:
     await telegramMessage.sendMarkdownV2(this.bot, chatId, telegramMessage.escape(text));
   }
 
-  async showHelp(chatId) {
+  async showHelp(chatId, telegramId) {
     // Command list comes from the shared source of truth (atlasCommands) so it
     // stays identical to the morning/after-generation footer. Sent as plain
     // Markdown to avoid hand-escaping every command line for MarkdownV2.
-    await telegramClient.sendMessage(
-      this.bot,
-      chatId,
+    const { isAdmin } = require('../commands/premiumCommands');
+
+    let helpText =
       '🤖 *ATLAS — Your Personal Goal Assistant*\n\n' +
       '*Commands*\n' +
       atlasCommands.commandsListBold() + '\n\n' +
@@ -1326,7 +1326,28 @@ Return ONLY valid JSON:
       '• "change time" — Update delivery time\n' +
       '• Just chat — I\'ll respond conversationally\n\n' +
       '💡 Tap /start to turn today\'s tasks into ✅ buttons.\n\n' +
-      'Stay consistent. Build momentum. 🚀',
+      'Stay consistent. Build momentum. 🚀';
+
+    // Admin-only section
+    if (isAdmin(telegramId)) {
+      helpText += '\n\n' +
+        '🔐 *Admin Commands*\n' +
+        '/payments [on|off|status] — Toggle payment system\n' +
+        '/paymentson — Enable payments (alias)\n' +
+        '/paymentsoff — Disable payments (alias)\n' +
+        '/paymentsstatus — Check payment state\n' +
+        '/paymentsreset — Reset to test mode (payments ON, your tier: free)\n' +
+        '/makecoupon CODE [days] — Create coupon (lifetime if days omitted)\n' +
+        '/couponlist — View all coupons + redemption ledger\n' +
+        '/verifypay ID [ok|no] — Manually verify a payment\n' +
+        '/betastats — Beta tester metrics\n' +
+        '/paid REF — Test UPI payment flow';
+    }
+
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      helpText,
       { parse_mode: 'Markdown', ...inlineKeyboards.mainMenu() }
     );
   }
