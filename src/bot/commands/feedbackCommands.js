@@ -104,6 +104,7 @@ const feedbackCommands = {
       `📊 *ATLAS Beta Stats*\n\n` +
       `👥 Total users: *${s.total}*\n` +
       `✅ Finished onboarding: *${s.onboarded}*\n` +
+      `🧪 Real beta testers: *${s.realUsers}* (excl. admin + founding)\n` +
       `🔥 Active today: *${s.activeToday}*\n` +
       `📅 Active this week: *${s.activeWeek}*\n` +
       `💬 Feedback received: *${fb}*`,
