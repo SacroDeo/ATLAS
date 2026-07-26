@@ -454,10 +454,16 @@ logger.info(`[processUser] Tasks sent successfully`);
 
       const safeEncouragement = telegramUtils.escapeMarkdown(tone.encouragement);
 
+      // Social proof: show active user count
+      const activeCount = await this.getActiveUsersToday();
+      const socialProof = activeCount > 1
+        ? `\n\n👥 ${activeCount} people are working on their goals with ATLAS right now.`
+        : '';
+
       await telegramClient.sendMessage(
         this.bot,
         user.telegram_id,
-        `${safeEncouragement}\n\n🔥 Current streak: ${user.current_streak} days`,
+        `${safeEncouragement}\n\n🔥 Current streak: ${user.current_streak} days${telegramUtils.escapeMarkdown(socialProof)}`,
         { parse_mode: 'MarkdownV2' }
       );
 
@@ -564,6 +570,25 @@ logger.info(`[processUser] Tasks sent successfully`);
       this.job.stop();
       this.running = false;
       logger.info('Daily cron job stopped');
+    }
+  }
+
+  async getActiveUsersToday() {
+    try {
+      const { supabase } = require('../config/supabase');
+      const today = new Date().toISOString().split('T')[0];
+
+      // Count users who have completed at least one task today
+      const { count } = await supabase
+        .from('tasks')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('assigned_date', today)
+        .eq('status', 'completed');
+
+      return count || 0;
+    } catch (error) {
+      logger.error('Failed to get active user count:', error);
+      return 0;
     }
   }
 }

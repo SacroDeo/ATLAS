@@ -293,6 +293,17 @@ async deactivateActiveTasks(userId, date = null) {
       .single();
     return data?.completed_at?.split('T')[0] || null;
   },
+
+  // Check if user completed at least one task on a specific date
+  async hasCompletedTasksOnDate(userId, date) {
+    const { count } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('assigned_date', date)
+      .eq('status', 'completed');
+    return count > 0;
+  },
   /**
    * Returns tasks for a date range ordered by assigned_date.
    * Used by engagementAnalyzer for consecutive missed day detection.

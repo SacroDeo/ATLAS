@@ -47,3 +47,12 @@ resume-ai-first-draft.md
 founder-dms.md
 internship-hunt-prompt.md
 job-hunt-tracker.md
+
+# Private internal docs — security details & working notes (never publish)
+SECURITY_AUDIT_REPORT.md
+SECURITY_FIXES_APPLIED.md
+IMPLEMENTATION_COMPLETE.md
+DEPLOYMENT_READY.md
+TESTING_GUIDE.md
+ADDITIONAL_IMPROVEMENTS.md
+RETENTION_FEATURES.md

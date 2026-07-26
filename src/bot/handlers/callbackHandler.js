@@ -183,6 +183,7 @@ const onboardingPrefixes = [
   'finalmode_',
   'roadmap_weekly_',
   'ownroadmap_',
+  'commitment_',
 ];
 
 const isOnboardingCallback =
@@ -363,11 +364,21 @@ async handleDone(callbackQuery, taskId) {
       updatedUser.personality_type
     );
 
-  await telegramClient.sendMessage(
-    this.bot,
-    chatId,
-    tone.completion.positive
-  );
+  // First-task celebration: reinforce the early win
+  if (result.isFirstTaskEver) {
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      "🎉 *First task done!* That's the hardest one.\n\nKeep this up for 3 days and you'll feel the difference.",
+      { parse_mode: 'Markdown' }
+    );
+  } else {
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      tone.completion.positive
+    );
+  }
 
   // Understanding check: taskService says whether this user is due a
   // socratic question — generate one and attach the Answer/Skip keyboard.

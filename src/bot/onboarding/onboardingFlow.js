@@ -982,6 +982,31 @@ Be concise. Be real.`
         { parse_mode: 'Markdown' }
       );
     }
+
+    // Commitment screening: filter for users who actually want to put in the work
+    await this._sendCommitmentScreen(chatId, telegramId);
+  }
+
+  async _sendCommitmentScreen(chatId, telegramId) {
+    await telegramClient.sendMessage(
+      this.bot,
+      chatId,
+      "⚠️ *Real talk:*\n\n" +
+      "Most people sign up, like the idea, then ghost after day 1.\n\n" +
+      "ATLAS won't do the work for you. It just tells you *what* to do and *keeps you honest*.\n\n" +
+      "If you're looking for motivation or someone to hold your hand — this isn't it.\n\n" +
+      "If you're ready to show up daily and do the work — you'll see results in 3 days.\n\n" +
+      "Still in?",
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ Yes, I'll show up", callback_data: 'commitment_yes' }],
+            [{ text: '❌ Not ready yet', callback_data: 'commitment_no' }],
+          ],
+        },
+      }
+    );
   }
 
   async _askFinalTaskMode(chatId) {
@@ -1255,6 +1280,32 @@ Be concise. Be real.`
 
       if (data === 'roadmap_weekly_no') {
         await this._askLifeStruggle(chatId);
+        return;
+      }
+
+      if (data === 'commitment_yes') {
+        const { supabase } = require('../../config/supabase');
+        await supabase
+          .from('users')
+          .update({ commitment_screened_at: new Date().toISOString() })
+          .eq('telegram_id', telegramId);
+
+        await telegramClient.editMessage(
+          this.bot,
+          chatId,
+          callbackQuery.message.message_id,
+          '✅ Respect. See you tomorrow.'
+        );
+        return;
+      }
+
+      if (data === 'commitment_no') {
+        await telegramClient.editMessage(
+          this.bot,
+          chatId,
+          callbackQuery.message.message_id,
+          "👍 No worries. Come back when you're ready — I'll be here."
+        );
         return;
       }
 

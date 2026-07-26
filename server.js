@@ -32,6 +32,7 @@ const CallbackHandler = require('./src/bot/handlers/callbackHandler');
 const { dailyCron } = require('./src/cron/dailyCron');
 const { weeklyCron } = require('./src/cron/weeklyCron');
 const { checkinCron } = require('./src/cron/checkinCron');
+const Day2RecoveryCron = require('./src/cron/day2RecoveryCron');
 
 const app = express();
 
@@ -99,6 +100,8 @@ dailyCron.setBot(bot);
 weeklyCron.setBot(bot);
 checkinCron.setBot(bot);
 
+const day2RecoveryCron = new Day2RecoveryCron(bot);
+
 bot.on('message', async (msg) => {
   try {
     await messageHandler.handleMessage(msg);
@@ -165,6 +168,7 @@ bot.on('polling_error', (error) => {
 dailyCron.start();
 weeklyCron.start();
 checkinCron.start();
+day2RecoveryCron.start();
 logger.info('Cron jobs initialized');
 
 app.get('/health', (req, res) => {

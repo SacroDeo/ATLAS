@@ -55,14 +55,34 @@ class TaskService {
 
       const shouldAsk = await socraticEvaluator.shouldAskSocratic(userId);
 
+      // First-task celebration: reinforce early win
+      const isFirstTaskEver = await this.checkIfFirstTaskEver(userId);
+
       return {
         task: data,
         shouldAskSocratic: shouldAsk,
         alreadyCompleted: false,
+        isFirstTaskEver,
       };
     } catch (error) {
       logger.error(`Failed to complete task ${taskId}:`, error);
       throw error;
+    }
+  }
+
+  async checkIfFirstTaskEver(userId) {
+    try {
+      const { supabase } = require('../../config/supabase');
+      const { count } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'completed');
+
+      return count === 1;
+    } catch (error) {
+      logger.error('Failed to check first task status:', error);
+      return false;
     }
   }
 
