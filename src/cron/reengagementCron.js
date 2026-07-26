@@ -97,8 +97,19 @@ class ReengagementCron {
     const relapse = await engagementAnalyzer.detectRelapseRisk(user);
     if (!relapse.isRelapse) return;
 
+    // All gates passed — build + send + mark.
+    await this.sendNudgeNow(user, daysSinceLastCompletion, relapse.severity);
+  }
+
+  // Builds the message (AI → template fallback), sends it, and marks the user
+  // as nudged. Assumes the caller has already decided this user SHOULD be
+  // nudged — no time-window / cooldown gating here. Used by processUser (after
+  // gates pass) and by the /testnudge admin command (which bypasses gates).
+  // Returns { sent, usedFallback } so callers can report what happened.
+  async sendNudgeNow(user, daysSinceLastCompletion, severity = 'manual') {
     // Build the message: AI first, template fallback on any failure.
     let message;
+    let usedFallback = false;
     try {
       message = await aiOrchestrator.generateReengagementMessage(user, {
         daysSinceLastCompletion,
@@ -106,6 +117,7 @@ class ReengagementCron {
     } catch (error) {
       logger.warn(`[Reengagement] AI generation failed for user ${user.telegram_id}, using template: ${error.message}`);
       message = this._buildTemplate(user, daysSinceLastCompletion);
+      usedFallback = true;
     }
 
     try {
@@ -117,7 +129,7 @@ class ReengagementCron {
       } else {
         logger.error(`[Reengagement] Failed to send nudge to ${user.telegram_id}:`, error);
       }
-      return; // don't mark as sent if delivery failed
+      return { sent: false, usedFallback }; // don't mark as sent if delivery failed
     }
 
     // Mark as sent so we don't nudge again until they re-engage (which clears
@@ -130,8 +142,9 @@ class ReengagementCron {
 
     logger.info(
       `[Reengagement] Nudge sent to user ${user.telegram_id} ` +
-      `(daysSinceLastCompletion=${daysSinceLastCompletion}, relapse=${relapse.severity})`
+      `(daysSinceLastCompletion=${daysSinceLastCompletion}, relapse=${severity})`
     );
+    return { sent: true, usedFallback };
   }
 
   // Whole-day difference between two YYYY-MM-DD calendar-date strings.

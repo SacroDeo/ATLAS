@@ -1237,6 +1237,41 @@ Return ONLY valid JSON:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
         break;
       }
+      case '/testnudge': {
+        // Admin-only dev command: fire the re-engagement nudge at yourself on
+        // demand, bypassing the time-window / cooldown / relapse gates so you
+        // can preview the actual AI message. Silent (Unknown command) to non-admins.
+        const { isAdmin } = require('../commands/premiumCommands');
+        if (!isAdmin(telegramId)) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+          break;
+        }
+        try {
+          const ReengagementCron = require('../../cron/reengagementCron');
+          const taskQueries = require('../../database/queries/taskQueries');
+          const timezoneUtils = require('../../utils/timezoneUtils');
+          const cronInstance = new ReengagementCron(this.bot);
+
+          const lastCompletionDate = await taskQueries.getLastCompletionDate(user.id);
+          const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+          const days = lastCompletionDate
+            ? cronInstance._dayDiff(lastCompletionDate, today)
+            : 0;
+
+          const result = await cronInstance.sendNudgeNow(user, days, 'test');
+          await telegramClient.sendMessage(
+            this.bot,
+            chatId,
+            result.sent
+              ? `✅ Test nudge sent (${result.usedFallback ? 'template fallback' : 'AI-generated'}, days=${days}).`
+              : '⚠️ Test nudge failed to send — check logs.'
+          );
+        } catch (err) {
+          logger.error('[/testnudge] failed:', err);
+          await telegramClient.sendMessage(this.bot, chatId, `⚠️ Test nudge error: ${err.message}`);
+        }
+        break;
+      }
       default:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
     }
