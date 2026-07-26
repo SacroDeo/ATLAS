@@ -100,11 +100,6 @@ async function sendMessage(bot, chatId, text, extraOptions = {}) {
 
     // Chunk label for multi-part messages
     const chunkText = chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n${chunks[i]}` : chunks[i];
-    logger.info({
-  sendMessage_chatId_type: typeof chatId,
-  sendMessage_text_type: typeof chunkText,
-  sendMessage_options_type: typeof options,
-});
     lastResult = await executeTelegramOperation(
       () => bot.sendMessage(
       chatId, chunkText, options),
