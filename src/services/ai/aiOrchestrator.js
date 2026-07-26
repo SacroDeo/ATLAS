@@ -319,6 +319,52 @@ class AIOrchestrator {
     );
   }
 
+  /**
+   * Generates a warm, sympathetic re-engagement message for a user who has
+   * gone quiet for several days. Personalized to their actual goal — NOT a
+   * guilt trip. Returns plain text (the raw message to send). Callers must
+   * wrap in try/catch and fall back to a template if this throws.
+   *
+   * @param {Object} user - Full user row (goal, first_name, motivation, biggest_struggle, current_streak)
+   * @param {Object} ctx  - { daysSinceLastCompletion }
+   * @returns {Promise<string>} - The message text
+   */
+  async generateReengagementMessage(user, ctx = {}) {
+    const text = await this.execute(
+      this.buildReengagementPrompt(user, ctx),
+      { temperature: 0.8, maxTokens: 300 }
+    );
+    const cleaned = (text || '').trim();
+    if (!cleaned) throw new Error('Empty re-engagement message from AI');
+    return cleaned;
+  }
+
+  buildReengagementPrompt(user, ctx = {}) {
+    const name = user.first_name || 'there';
+    const days = ctx.daysSinceLastCompletion || 'a few';
+    return [
+      {
+        role: 'system',
+        content: `You are ATLAS, a warm and caring personal goal assistant. One of your users has gone quiet — they haven't completed a task in about ${days} days. Write them a short, sympathetic message to gently invite them back.
+
+User:
+- Name: ${name}
+- Their goal: ${user.goal || 'their personal goal'}
+- Why it matters to them: ${user.motivation || 'unknown'}
+- Their biggest struggle: ${user.biggest_struggle || 'unknown'}
+- Current streak: ${user.current_streak || 0} days
+
+Rules for the message:
+1. Be genuinely warm and empathetic. This is NOT a guilt trip and NOT a scold. Life gets busy — acknowledge that with kindness.
+2. Reference their SPECIFIC goal (quote or paraphrase "${user.goal || 'their goal'}") so it feels personal, as if you remember them.
+3. Ask one gentle, inviting question — something like whether they'd like to take one small step back today.
+4. Keep it to 2-4 short sentences. Warm, human, encouraging. End on an uplifting note.
+5. Address them by name (${name}) if it feels natural.
+6. Output ONLY the message text — no quotes around it, no preamble, no labels, no markdown headings. A couple of tasteful emojis are welcome.`
+      }
+    ];
+  }
+
   buildDailyTaskPrompt(userContext, personality) {
     return [
       {

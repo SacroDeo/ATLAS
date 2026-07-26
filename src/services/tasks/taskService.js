@@ -48,6 +48,18 @@ class TaskService {
         };
       }
 
+      // Re-engagement reset: completing a task means they're back — clear any
+      // "did you forget your goal?" nudge flag so a future lapse can nudge again.
+      // Best-effort: a failure here must never block completion.
+      try {
+        await supabase
+          .from('users')
+          .update({ reengagement_nudge_sent_at: null })
+          .eq('id', userId);
+      } catch (resetError) {
+        logger.warn(`Failed to reset reengagement flag for user ${userId}: ${resetError.message}`);
+      }
+
       // NOTE: streaks are NOT updated here. The morning cron (dailyCron.processUser)
       // is the single streak authority — it evaluates yesterday's full outcome
       // exactly once per user per day. Incrementing at completion time as well

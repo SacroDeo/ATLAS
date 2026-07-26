@@ -8,7 +8,11 @@ const { supabase } = require('../src/config/supabase');
 async function runMigration() {
   console.log('🔄 Running database migration...\n');
 
-  const migrationPath = path.join(__dirname, '../migrations/add_webhook_idempotency.sql');
+  // Accept a migration filename as the first CLI arg; default to the
+  // webhook-idempotency migration for backward compatibility.
+  const migrationFile = process.argv[2] || 'add_webhook_idempotency.sql';
+  const migrationPath = path.join(__dirname, '..', 'migrations', migrationFile);
+  console.log(`📄 Migration file: ${migrationFile}\n`);
   const sql = fs.readFileSync(migrationPath, 'utf8');
 
   // Split by semicolon and filter out comments/empty statements
@@ -53,7 +57,7 @@ async function runMigration() {
   if (errorCount > 0) {
     console.log('\n⚠️  Some statements failed. Please run the migration manually:');
     console.log('   1. Go to Supabase Dashboard → SQL Editor');
-    console.log('   2. Copy contents of migrations/add_webhook_idempotency.sql');
+    console.log(`   2. Copy contents of migrations/${migrationFile}`);
     console.log('   3. Run the SQL query');
   }
 }

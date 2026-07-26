@@ -33,6 +33,7 @@ const { dailyCron } = require('./src/cron/dailyCron');
 const { weeklyCron } = require('./src/cron/weeklyCron');
 const { checkinCron } = require('./src/cron/checkinCron');
 const Day2RecoveryCron = require('./src/cron/day2RecoveryCron');
+const ReengagementCron = require('./src/cron/reengagementCron');
 
 const app = express();
 
@@ -101,6 +102,7 @@ weeklyCron.setBot(bot);
 checkinCron.setBot(bot);
 
 const day2RecoveryCron = new Day2RecoveryCron(bot);
+const reengagementCron = new ReengagementCron(bot);
 
 bot.on('message', async (msg) => {
   try {
@@ -169,6 +171,7 @@ dailyCron.start();
 weeklyCron.start();
 checkinCron.start();
 day2RecoveryCron.start();
+reengagementCron.start();
 logger.info('Cron jobs initialized');
 
 app.get('/health', (req, res) => {
