@@ -2,6 +2,7 @@
 const aiOrchestrator = require('../../services/ai/aiOrchestrator');
 const userQueries = require('../../database/queries/userQueries');
 const timezoneUtils = require('../../utils/timezoneUtils');
+const validators = require('../../utils/validators');
 const config = require('../../config');
 const logger = require('../../utils/logger');
 const { dailyCron } = require('../../cron/dailyCron');
@@ -189,12 +190,12 @@ class OnboardingFlow {
     await telegramClient.sendMessage(
       this.bot,
       chatId,
-      "*What's the one goal you want to work on — and when do you want to achieve it by?*\n\n" +
+      "*What's the one goal you want to work on — and how long do you want to give yourself?*\n\n" +
       "Examples:\n" +
       "• _\"Become a SOC Analyst within 6 months\"_\n" +
       "• _\"Learn Python and build a project in 3 months\"_\n" +
-      "• _\"Lose 8kg by September\"_\n\n" +
-      "Include a timeframe — it helps me set the right pace.",
+      "• _\"Lose 8kg in 10 weeks\"_\n\n" +
+      "Tell me the number of months or weeks — it helps me set the right pace.",
       { parse_mode: 'Markdown' }
     );
   }
@@ -284,11 +285,15 @@ Never sound like a form. Never say "please provide". No bullet points.`,
       return;
     }
 
-    const hasTimeframe = /\b(\d+\s*(day|days|week|weeks|month|months|year|years)|by\s+\w+|in\s+\d+|within\s+\d+)\b/i.test(text);
-    if (!hasTimeframe) {
+    // A goal only carries a usable timeframe if it names a concrete duration
+    // (number + unit) or a dd/mm/yy date. A bare month ("by August") does NOT
+    // count — route those to the deadline step to get a real answer.
+    const inlineDeadline = /\b(\d+)\s*(day|days|week|weeks|month|months|year|years)\b/i.test(text) ||
+      /\b\d{1,2}\s*[\/\-.]\s*\d{1,2}\s*[\/\-.]\s*(\d{2}|\d{4})\b/.test(text);
+    if (!inlineDeadline) {
       await telegramClient.sendMessage(this.bot, chatId,
-        "Got it! One quick addition — *when do you want to achieve this by?*\n\n" +
-        "E.g. '3 months', 'by December', '6 weeks' — just reply with a timeframe.",
+        "Got it! One quick addition — *how many months or weeks do you want to give yourself?*\n\n" +
+        "Reply like '3 months' or '6 weeks' — or send an exact target date as *dd/mm/yy*.",
         { parse_mode: 'Markdown' }
       );
       userState.data.goal_partial = text.trim();
@@ -417,21 +422,22 @@ or
       return;
     }
 
-    // Light validation: a timeframe should mention a duration or a date-ish
-    // word — "idk" / "whenever" used to become part of the goal verbatim.
-    const looksLikeTimeframe =
-      /\d/.test(text) ||
-      /\b(week|month|year|day|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|summer|winter|asap|end of)\w*/i.test(text);
-    if (!looksLikeTimeframe) {
+    // Only a concrete duration ("3 months", "6 weeks") or a future dd/mm/yy
+    // date is accepted. A bare month name is rejected here so it can never
+    // slip through and silently become a default plan.
+    const parsed = validators.parseDeadline(text);
+    if (!parsed.valid) {
       await telegramClient.sendMessage(
         this.bot,
         chatId,
-        'Give me a rough timeframe — like "3 months", "by December", or "6 weeks".'
+        'How many *months* or *weeks* do you want to give yourself?\n\n' +
+        'Reply like "3 months" or "6 weeks" — or, if you have an exact target date, send it as *dd/mm/yy* (e.g. 15/09/26).',
+        { parse_mode: 'Markdown' }
       );
       return;
     }
 
-    const fullGoal = `${userState.data.goal_partial} — ${text.trim()}`;
+    const fullGoal = `${userState.data.goal_partial} — ${parsed.duration}`;
     await this._finishGoal(chatId, telegramId, fullGoal, userState, false);
   }
 
