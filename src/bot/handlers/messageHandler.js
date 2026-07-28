@@ -1105,6 +1105,9 @@ Return ONLY valid JSON:
           { parse_mode: 'Markdown', ...inlineKeyboards.roadmapMenu() }
         );
         break;
+      case '/skipped':
+        await this.showSkippedTasks(chatId, user);
+        break;
       case '/help':
         await this.showHelp(chatId, telegramId);
         break;
@@ -1133,9 +1136,13 @@ Return ONLY valid JSON:
         const crypto = require('crypto');
         // Unambiguous alphabet: no 0/O or 1/I lookalikes.
         const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        const maxValid = 256 - (256 % alphabet.length); // 240; eliminates modulo bias
         let code = '';
-        for (const byte of crypto.randomBytes(6)) {
-          code += alphabet[byte % alphabet.length];
+        while (code.length < 6) {
+          for (const byte of crypto.randomBytes(6)) {
+            if (code.length >= 6) break;
+            if (byte < maxValid) code += alphabet[byte % alphabet.length];
+          }
         }
         await authQueries.createLinkCode(code, telegramId, 10);
         await telegramClient.sendMessage(
@@ -1274,6 +1281,32 @@ Return ONLY valid JSON:
       }
       default:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+    }
+  }
+
+  async showSkippedTasks(chatId, user) {
+    const { formatTask } = require('../utils/telegram/telegramFormatter');
+    const tasks = await taskQueries.getSkippedTasks(user.id);
+    if (tasks.length === 0) {
+      await telegramClient.sendMessage(this.bot, chatId, '✅ No skipped tasks today.');
+      return;
+    }
+    await telegramClient.sendMessage(this.bot, chatId, `⏭️ *${tasks.length} skipped task${tasks.length > 1 ? 's' : ''} today* — tap to restore any:`, { parse_mode: 'Markdown' });
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      try {
+        await telegramClient.sendMessage(
+          this.bot, chatId,
+          formatTask(task, i + 1),
+          { parse_mode: 'MarkdownV2', ...inlineKeyboards.restoreTask(task.id) }
+        );
+      } catch {
+        await telegramClient.sendMessage(
+          this.bot, chatId,
+          `${i + 1}. ${task.title}`,
+          inlineKeyboards.restoreTask(task.id)
+        );
+      }
     }
   }
 

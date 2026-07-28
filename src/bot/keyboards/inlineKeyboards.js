@@ -37,6 +37,16 @@ const inlineKeyboards = {
     };
   },
 
+  restoreTask(taskId) {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '↩️ Restore to pending', callback_data: `task:restore:${taskId}` }],
+        ],
+      },
+    };
+  },
+
   socraticPrompt(taskId) {
     return {
       reply_markup: {

@@ -621,6 +621,46 @@ async handleSkipReason(callbackQuery, taskId, reason) {
 }
 
 
+async handleRestore(callbackQuery, taskId) {
+  const { chatId, messageId, user } =
+    await this._getCallbackContext(callbackQuery);
+
+  await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
+
+  const task = await taskQueries.getTaskById(taskId);
+  if (!task || task.user_id !== user.id || task.status === 'completed') {
+    await telegramClient.editMessage(
+      this.bot, chatId, messageId,
+      task?.status === 'completed'
+        ? '✅ This task was already completed.'
+        : '⚠️ Task not found.'
+    );
+    return;
+  }
+
+  await taskQueries.updateTask(taskId, { status: 'pending', skip_reason: null, updated_at: new Date().toISOString() }, user.id);
+
+  await telegramClient.editMessage(
+    this.bot, chatId, messageId,
+    '↩️ Task restored to your pending list.'
+  );
+
+  const { formatTask } = require('../../utils/telegram/telegramFormatter');
+  try {
+    await telegramClient.sendMessage(
+      this.bot, chatId,
+      formatTask(task, ''),
+      { parse_mode: 'MarkdownV2', ...inlineKeyboards.taskActions(task.id) }
+    );
+  } catch {
+    await telegramClient.sendMessage(
+      this.bot, chatId,
+      task.title,
+      inlineKeyboards.taskActions(task.id)
+    );
+  }
+}
+
 async handleTooHard(callbackQuery, taskId) {
   const { chatId, messageId, user } =
     await this._getCallbackContext(callbackQuery);

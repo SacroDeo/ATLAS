@@ -12,6 +12,7 @@
 const COMMANDS = [
   { cmd: '/start',    desc: "View today's tasks as tappable buttons" },
   { cmd: '/today',    desc: 'See how many missions remain today' },
+  { cmd: '/skipped',  desc: 'View skipped tasks and restore any of them' },
   { cmd: '/progress', desc: "Today's completion and streak" },
   { cmd: '/stats',    desc: "This week's statistics" },
   { cmd: '/review',   desc: 'Your weekly review' },

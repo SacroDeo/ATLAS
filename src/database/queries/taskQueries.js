@@ -47,6 +47,25 @@ const taskQueries = {
     return data || [];
   },
 
+  // Skipped-but-still-active tasks for a given day. Skipping only sets
+  // status='skipped' (is_active stays true), so these are fully preserved
+  // and can be restored to 'pending'. Used by the /skipped command.
+  async getSkippedTasks(userId, date = null) {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('is_active', true)
+      .eq('user_id', userId)
+      .eq('assigned_date', targetDate)
+      .eq('status', 'skipped')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
   async updateTaskStatus(taskId, status, additionalData = {}) {
     const updates = {
       status,

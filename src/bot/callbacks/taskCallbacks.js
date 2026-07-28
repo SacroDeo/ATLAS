@@ -27,6 +27,9 @@ module.exports = {
       case 'socraticskip': 
         return ctx.handleSkipSocratic(callbackQuery);
 
+      case 'restore':
+        return ctx.handleRestore(callbackQuery, id);
+
       case 'completed':
         return answerCallback(ctx, 'Task already completed.', { showAlert: false });
 
