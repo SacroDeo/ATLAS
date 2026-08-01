@@ -661,6 +661,49 @@ async handleRestore(callbackQuery, taskId) {
   }
 }
 
+async handleReschedule(callbackQuery, taskId) {
+  const { chatId, messageId, user } =
+    await this._getCallbackContext(callbackQuery);
+
+  await telegramClient.answerCallbackQuery(this.bot, callbackQuery.id);
+
+  const task = await taskQueries.getTaskById(taskId);
+  // Ownership + completed guard: never move another user's task and never
+  // resurrect a completed one.
+  if (!task || task.user_id !== user.id || task.status === 'completed') {
+    await telegramClient.editMessage(
+      this.bot, chatId, messageId,
+      task?.status === 'completed'
+        ? '✅ This task was already completed.'
+        : '⚠️ Task not found.'
+    );
+    return;
+  }
+
+  // User-local tomorrow — MUST match how assigned_date is generated elsewhere
+  // (dailyCron / task generation both use timezoneUtils, not server-UTC), or a
+  // non-UTC user's rescheduled task lands on the wrong calendar day.
+  // getLocalDateStringDaysAgo(tz, -1) = today + 1 day in the user's zone.
+  const tomorrow = timezoneUtils.getLocalDateStringDaysAgo(user.timezone || 'UTC', -1);
+
+  // A rescheduled task is no longer "skipped": clear skip_reason and set it
+  // pending on tomorrow so it surfaces in tomorrow's /start and drops out of
+  // the /skipped list. assigned_date + due_date move together (mirrors the
+  // simplified-task path) so day-scoped queries stay consistent.
+  await taskQueries.updateTask(taskId, {
+    status: 'pending',
+    skip_reason: null,
+    assigned_date: tomorrow,
+    due_date: tomorrow,
+    updated_at: new Date().toISOString(),
+  }, user.id);
+
+  await telegramClient.editMessage(
+    this.bot, chatId, messageId,
+    '📅 Moved to tomorrow — it\'ll be in your list then.'
+  );
+}
+
 async handleTooHard(callbackQuery, taskId) {
   const { chatId, messageId, user } =
     await this._getCallbackContext(callbackQuery);

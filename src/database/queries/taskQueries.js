@@ -66,6 +66,27 @@ const taskQueries = {
     return data || [];
   },
 
+  // Skipped-but-still-active tasks across a date window [startDate, endDate]
+  // (both inclusive). Dates are USER-LOCAL calendar days — assigned_date is
+  // stored user-local, so callers must pass dates derived from timezoneUtils,
+  // never a raw UTC toISOString(). Backs the /skipped command's 3-day window so
+  // users can revisit tasks skipped on earlier days, not just today.
+  async getSkippedTasksInRange(userId, startDate, endDate) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('is_active', true)
+      .eq('user_id', userId)
+      .eq('status', 'skipped')
+      .gte('assigned_date', startDate)
+      .lte('assigned_date', endDate)
+      .order('assigned_date', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
   async updateTaskStatus(taskId, status, additionalData = {}) {
     const updates = {
       status,

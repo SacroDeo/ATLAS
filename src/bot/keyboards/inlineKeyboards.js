@@ -47,6 +47,23 @@ const inlineKeyboards = {
     };
   },
 
+  // Actions offered per task in the /skipped view. Reuses the existing
+  // task:done / task:restore actions and adds task:resched (reschedule to
+  // tomorrow). callback_data stays well under Telegram's 64-byte limit.
+  skippedTaskActions(taskId) {
+    return {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ Complete now', callback_data: `task:done:${taskId}` },
+            { text: '↩️ Restore', callback_data: `task:restore:${taskId}` },
+          ],
+          [{ text: '📅 Reschedule to tomorrow', callback_data: `task:resched:${taskId}` }],
+        ],
+      },
+    };
+  },
+
   socraticPrompt(taskId) {
     return {
       reply_markup: {

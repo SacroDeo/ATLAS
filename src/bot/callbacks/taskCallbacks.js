@@ -30,6 +30,9 @@ module.exports = {
       case 'restore':
         return ctx.handleRestore(callbackQuery, id);
 
+      case 'resched':
+        return ctx.handleReschedule(callbackQuery, id);
+
       case 'completed':
         return answerCallback(ctx, 'Task already completed.', { showAlert: false });
 

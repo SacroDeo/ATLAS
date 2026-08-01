@@ -1286,25 +1286,31 @@ Return ONLY valid JSON:
 
   async showSkippedTasks(chatId, user) {
     const { formatTask } = require('../utils/telegram/telegramFormatter');
-    const tasks = await taskQueries.getSkippedTasks(user.id);
+    // 3-day user-local window (today + the 2 prior days). Dates are computed in
+    // the user's timezone because assigned_date is stored user-local — using
+    // server-UTC here would drift by a day for non-UTC users.
+    const tz = user.timezone || 'UTC';
+    const today = timezoneUtils.getLocalDateString(tz);
+    const windowStart = timezoneUtils.getLocalDateStringDaysAgo(tz, 2);
+    const tasks = await taskQueries.getSkippedTasksInRange(user.id, windowStart, today);
     if (tasks.length === 0) {
-      await telegramClient.sendMessage(this.bot, chatId, '✅ No skipped tasks today.');
+      await telegramClient.sendMessage(this.bot, chatId, '✅ No skipped tasks in the last 3 days.');
       return;
     }
-    await telegramClient.sendMessage(this.bot, chatId, `⏭️ *${tasks.length} skipped task${tasks.length > 1 ? 's' : ''} today* — tap to restore any:`, { parse_mode: 'Markdown' });
+    await telegramClient.sendMessage(this.bot, chatId, `⏭️ *${tasks.length} skipped task${tasks.length > 1 ? 's' : ''}* (last 3 days) — complete, restore, or push to tomorrow:`, { parse_mode: 'Markdown' });
     for (let i = 0; i < tasks.length; i++) {
       const task = tasks[i];
       try {
         await telegramClient.sendMessage(
           this.bot, chatId,
           formatTask(task, i + 1),
-          { parse_mode: 'MarkdownV2', ...inlineKeyboards.restoreTask(task.id) }
+          { parse_mode: 'MarkdownV2', ...inlineKeyboards.skippedTaskActions(task.id) }
         );
       } catch {
         await telegramClient.sendMessage(
           this.bot, chatId,
           `${i + 1}. ${task.title}`,
-          inlineKeyboards.restoreTask(task.id)
+          inlineKeyboards.skippedTaskActions(task.id)
         );
       }
     }

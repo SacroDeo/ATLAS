@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const telegramClient = require('./telegram/telegramClient');
 
 class AppError extends Error {
   constructor(message, statusCode = 500, isOperational = true) {
