@@ -258,6 +258,25 @@ async handleChangeTimeConfirm(
     return;
   }
 
+  // SECURITY (M-2): `time` comes from the raw callback_data
+  // ("changetime_<time>") which is fully attacker-controllable — a crafted
+  // client can send any string, not just the values our inline buttons offer.
+  // It is written straight to preferred_time, so reject anything that isn't a
+  // canonical 24h HH:MM before it reaches the DB. This is the write-time lock;
+  // shouldSendTasksNow has a read-time NaN guard as defense-in-depth.
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    logger.warn(
+      `Rejected invalid changetime value from ${user.telegram_id}: ${JSON.stringify(time)}`
+    );
+    await telegramClient.answerCallbackQuery(
+      this.bot,
+      callbackQuery.id,
+      'Invalid time.',
+      false
+    );
+    return;
+  }
+
   try {
 
     await userQueries.updateOnboardingState(

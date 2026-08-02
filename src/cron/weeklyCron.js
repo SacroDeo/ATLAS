@@ -2,10 +2,13 @@
 const cron = require('node-cron');
 const weeklyReviewGenerator = require('../services/ai/weeklyReviewGenerator');
 const reviewService = require('../services/reviews/reviewService');
+const reviewQueries = require('../database/queries/reviewQueries');
 const memoryService = require('../services/memory/memoryService');
 const userQueries = require('../database/queries/userQueries');
 const personalityService = require('../services/personality/personalityService');
 const telegramClient = require('../utils/telegram/telegramClient');
+const timezoneUtils = require('../utils/timezoneUtils');
+const dateUtils = require('../utils/dateUtils');
 const logger = require('../utils/logger');
 
 class WeeklyCron {
@@ -13,6 +16,11 @@ class WeeklyCron {
     this.bot = null;
     this.running = false;
     this.job = null;
+    // In-memory "already handled this user for this week" guard. Keyed by
+    // `${user.id}:${weekNumber}`. Cheap fast-path so a user isn't re-queried
+    // on every 15-min tick inside their Sunday window; the authoritative
+    // dedup is the DB check in tick() (survives restarts).
+    this.sentGuard = new Set();
   }
 
   setBot(bot) {
@@ -26,31 +34,75 @@ class WeeklyCron {
       this.bot = app.bot;
     }
 
-    this.job = cron.schedule('0 10 * * 0', async () => {
-      logger.info('Weekly cron job started - generating reviews');
-      await this.executeWeeklyReviews();
+    // Tick every 15 min in UTC, then per-user decide whether it's ~Sunday
+    // 10:00 in THAT user's local timezone. The old fixed '0 10 * * 0' UTC
+    // schedule delivered at 3:30 PM for IST users and midnight-ish for the
+    // Americas; this matches the per-user-timezone pattern of the daily and
+    // check-in crons so everyone gets their review Sunday mid-morning local.
+    this.job = cron.schedule('*/15 * * * *', async () => {
+      await this.tick();
     }, {
       timezone: 'UTC'
     });
 
     this.running = true;
-    logger.info('Weekly cron job scheduled for Sundays at 10:00 AM UTC');
+    logger.info('Weekly cron scheduled (15-min tick; delivers Sunday from 10:00 local onward, once per week)');
   }
 
-  async executeWeeklyReviews() {
-    try {
-      const activeUsers = await userQueries.getInactiveUsers(0);
-      
-      logger.info(`Processing weekly reviews for ${activeUsers.length} active users`);
+  // Is it Sunday, at or after 10:00 local, in this user's timezone right now?
+  // Catch-up window: from 10:00 until the end of the user's local Sunday. If
+  // the host was down through the 10 AM hour (Render free tier spins down on
+  // inactivity), the user still gets their review later that same Sunday
+  // rather than missing the week entirely. The DB dedup guarantees exactly
+  // one delivery regardless of how many ticks fall inside this wide window.
+  _inSundayWindow(user) {
+    const tz = user.timezone || 'UTC';
+    const now = timezoneUtils.getCurrentTimeInZone(tz);
+    return now.getDay() === 0 && now.getHours() >= 10;
+  }
 
-      for (const user of activeUsers) {
-        await this.processUserReview(user);
-        await new Promise(resolve => setTimeout(resolve, 3000));
+  async tick() {
+    if (!this.bot) return;
+    try {
+      const activeUsers = await userQueries.getAllActiveUsers();
+      const weekNumber = dateUtils.getWeekNumber();
+
+      // Drop last week's guard keys so the Set doesn't grow without bound.
+      if (this._guardWeek !== weekNumber) {
+        this.sentGuard.clear();
+        this._guardWeek = weekNumber;
       }
 
-      logger.info('Weekly review generation completed');
+      const due = activeUsers.filter(u => this._inSundayWindow(u));
+      if (due.length === 0) return;
+
+      logger.info(`Weekly cron tick: ${due.length} user(s) in Sunday 10:00 local window (week ${weekNumber})`);
+
+      for (const user of due) {
+        const guardKey = `${user.id}:${weekNumber}`;
+        if (this.sentGuard.has(guardKey)) continue;
+
+        // Restart-safe dedup: if a review row already exists for this user +
+        // week, they've already been served this week — never re-send it.
+        // (generateReviewForUser returns the existing row rather than null,
+        // so without this check a mid-window restart would re-deliver.)
+        let alreadyReviewed = false;
+        try {
+          alreadyReviewed = !!(await reviewQueries.getReviewByWeek(user.id, weekNumber));
+        } catch (e) {
+          logger.error(`Weekly dedup check failed for ${user.telegram_id}:`, e);
+        }
+        if (alreadyReviewed) {
+          this.sentGuard.add(guardKey);
+          continue;
+        }
+
+        await this.processUserReview(user);
+        this.sentGuard.add(guardKey);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
     } catch (error) {
-      logger.error('Weekly cron execution failed:', error);
+      logger.error('Weekly cron tick failed:', error);
     }
   }
 

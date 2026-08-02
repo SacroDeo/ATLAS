@@ -58,6 +58,9 @@ app.use((req, res, next) => {
   res.set('X-Frame-Options', 'DENY'); // no iframing the dashboard
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (config.server.env === 'production') {
+    res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   res.set(
     'Content-Security-Policy',
     // telegram.org: Login Widget script + oauth frame; fonts for the UI;

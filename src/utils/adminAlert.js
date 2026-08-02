@@ -9,6 +9,12 @@ const logger = require('./logger');
 const THROTTLE_MS = 5 * 60 * 1000; // max one alert per error-type per 5 min
 const lastSent = new Map(); // key -> timestamp
 
+// Strip values that look like API keys, tokens, or secrets from error text.
+const SECRET_PATTERN = /(?:key|token|secret|password|authorization|bearer)[\s:=]*['\"]?[A-Za-z0-9_\-./+=]{16,}['\"]?/gi;
+function sanitize(text) {
+  return String(text).slice(0, 1000).replace(SECRET_PATTERN, '[REDACTED]');
+}
+
 let botRef = null;
 
 function setBot(bot) {
@@ -32,7 +38,7 @@ function alertAdmin(key, message) {
 
     const text =
       `🚨 ATLAS error [${key}]\n\n` +
-      `${String(message).slice(0, 1000)}\n\n` +
+      `${sanitize(message)}\n\n` +
       `${new Date().toISOString()}`;
 
     botRef.sendMessage(adminId, text).catch((err) => {

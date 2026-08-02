@@ -56,19 +56,18 @@ const authQueries = {
    * Look up a link code, delete it (single use), and return its telegram_id.
    * Returns null for unknown or expired codes.
    */
+  // Atomic delete-returning: a concurrent request finds nothing to delete
+  // and gets null — no TOCTOU window for double-use.
   async consumeLinkCode(code) {
     const { data, error } = await supabase
       .from('web_link_codes')
-      .select('*')
+      .delete()
       .eq('code', code)
+      .select()
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
     if (!data) return null;
-
-    // Delete regardless of expiry — a stale code should never linger.
-    await supabase.from('web_link_codes').delete().eq('code', code);
-
     if (new Date(data.expires_at).getTime() < Date.now()) return null;
     return data.telegram_id;
   },

@@ -21,7 +21,6 @@ class OnboardingFlow {
       PREFERRED_TIME:   'preferred_time',
       TIMEZONE:         'timezone',
       START_DATE:       'start_date',
-      TASK_MODE:        'task_mode',
       COMPLETED:        'completed',
     };
 
@@ -173,9 +172,6 @@ class OnboardingFlow {
         break;
       case this.states.START_DATE:
         await this._askStartDate(chatId);
-        break;
-      case this.states.TASK_MODE:
-        await this._askTaskMode(chatId);
         break;
       case 'awaiting_goal_clarify':
         await telegramClient.sendMessage(this.bot, chatId,
@@ -733,30 +729,6 @@ or
     await this._completeOnboarding(chatId, telegramId, userState.data);
   }
 
-  async _askTaskMode(chatId) {
-    await telegramClient.sendMessage(
-      this.bot,
-      chatId,
-      "🧠 *How should tasks work?*\n\n" +
-      "I can generate tasks based on your goal, or you can enter them yourself.\n\n" +
-      "*Why entering your own tasks works better than you'd think:*\n" +
-      "• You already know what matters most today\n" +
-      "• Tasks you chose yourself = higher follow-through (proven)\n" +
-      "• I still track everything, send reminders, and keep your plan on course\n\n" +
-      "Best of both worlds? Pick *Both* — I generate a base plan, you adjust it.",
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🤖 AI Generates My Tasks',   callback_data: 'taskmode_ai'   }],
-            [{ text: "✏️ I'll Enter My Own Tasks", callback_data: 'taskmode_manual' }],
-            [{ text: '⚡ Both (Recommended)',       callback_data: 'taskmode_both' }],
-          ],
-        },
-      }
-    );
-  }
-
   async _completeOnboarding(chatId, telegramId, data) {
     const startingToday = !data.start_preference || data.start_preference === 'today';
     const isManual      = data.task_mode === 'manual';
@@ -840,9 +812,9 @@ await telegramClient.sendMessage(
 // nothing needed here — life_struggle column handles state
     } catch (err) {
       logger.error(`Roadmap generation failed for ${telegramId}:`, err);
-      // Keep the onboarding chain intact: task_mode hasn't been chosen yet
-      // at this point, so jumping to _afterRoadmap sent tasks in a null
-      // mode and skipped the life-struggle + task-mode questions entirely.
+      // Keep the onboarding chain intact: on roadmap failure, fall back to the
+      // life-struggle question (which leads to the final task-mode step) rather
+      // than short-circuiting to task delivery before the user has chosen a mode.
       await telegramClient.sendMessage(
         this.bot,
         chatId,
@@ -967,30 +939,6 @@ Be concise. Be real.`
     }
 
     await this._askFinalTaskMode(chatId);
-  }
-
-  async _afterRoadmap(chatId, telegramId, data, startingToday, isManual) {
-    if (startingToday && !isManual) {
-      try {
-        await dailyCron.sendTasksImmediately(telegramId);
-      } catch (err) {
-        logger.error(`Failed to send immediate tasks for ${telegramId}:`, err);
-      }
-    }
-
-    if (isManual) {
-      await telegramClient.sendMessage(
-        this.bot,
-        chatId,
-        "👉 Go ahead — tell me your first task. Just type it naturally:\n\n" +
-        "_\"Study React hooks for 45 mins\"_\n" +
-        "_\"Write 500 words for my blog post\"_",
-        { parse_mode: 'Markdown' }
-      );
-    }
-
-    // Commitment screening: filter for users who actually want to put in the work
-    await this._sendCommitmentScreen(chatId, telegramId);
   }
 
   async _sendCommitmentScreen(chatId, telegramId) {
@@ -1382,18 +1330,14 @@ Be concise. Be real.`
       }
 
       if (data === 'taskmode_ai' || data === 'taskmode_manual' || data === 'taskmode_both') {
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          const modeMap = { taskmode_ai: 'ai', taskmode_manual: 'manual', taskmode_both: 'both' };
-          userState.data.task_mode = modeMap[data];
-          userState.state          = this.states.COMPLETED;
-          userState.updatedAt      = Date.now();
-          this.userStates.set(telegramId, userState);
-          await userQueries.updateOnboardingState(telegramId, this.states.TASK_MODE, {
-            task_mode: userState.data.task_mode,
-          });
-          await this._completeOnboarding(chatId, telegramId, userState.data);
-        }
+        // Legacy taskmode_* buttons were removed (superseded by finalmode_*).
+        // A user could still tap one on an old message — guide them to restart
+        // rather than run the dead completion path.
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          'That button is from an older setup. Type /start to begin fresh.'
+        );
         return;
       }
 

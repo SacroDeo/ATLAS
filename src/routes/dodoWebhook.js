@@ -44,6 +44,16 @@ setInterval(() => {
   }
 }, 2 * 60 * 1000);
 
+// Purge idempotency records older than 7 days every 6 hours
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from('processed_webhook_events').delete().lt('processed_at', cutoff);
+  } catch (err) {
+    logger.error('Webhook idempotency cleanup failed:', err.message);
+  }
+}, 6 * 60 * 60 * 1000);
+
 // Grant window per successful charge: 30 days + 5-day grace so a slightly
 // late renewal webhook doesn't lapse a paying subscriber.
 const GRANT_DAYS = 35;
@@ -136,7 +146,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
     if (checkError) {
       logger.error('Webhook idempotency check failed:', checkError.message);
-      // Continue processing on DB error (fail open for availability)
+      return res.status(503).send('idempotency check unavailable'); // fail closed: Dodo retries
     } else if (existing) {
       logger.info(`Dodo webhook ${msgId}: already processed — idempotent skip.`);
       return res.status(200).send('already processed');
