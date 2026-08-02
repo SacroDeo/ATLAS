@@ -1285,7 +1285,7 @@ Return ONLY valid JSON:
   }
 
   async showSkippedTasks(chatId, user) {
-    const { formatTask } = require('../utils/telegram/telegramFormatter');
+    const { formatTask } = require('../../utils/telegram/telegramFormatter');
     // 3-day user-local window (today + the 2 prior days). Dates are computed in
     // the user's timezone because assigned_date is stored user-local — using
     // server-UTC here would drift by a day for non-UTC users.
