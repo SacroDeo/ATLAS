@@ -66,22 +66,23 @@ const taskQueries = {
     return data || [];
   },
 
-  // Skipped-but-still-active tasks across a date window [startDate, endDate]
-  // (both inclusive). Dates are USER-LOCAL calendar days — assigned_date is
-  // stored user-local, so callers must pass dates derived from timezoneUtils,
-  // never a raw UTC toISOString(). Backs the /skipped command's 3-day window so
-  // users can revisit tasks skipped on earlier days, not just today.
-  async getSkippedTasksInRange(userId, startDate, endDate) {
+  // Skipped-but-still-active tasks skipped within the last `days` days. Keys
+  // off updated_at (bumped by every skip), NOT assigned_date: a user who skips
+  // a carried-over task from an earlier day still expects to see it in
+  // /skipped. updated_at is an absolute UTC instant, so this is timezone-safe —
+  // no user-local calendar-day drift like assigned_date has. Newest skip first.
+  // Backs the /skipped command.
+  async getRecentlySkippedTasks(userId, days = 3) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('is_active', true)
       .eq('user_id', userId)
       .eq('status', 'skipped')
-      .gte('assigned_date', startDate)
-      .lte('assigned_date', endDate)
-      .order('assigned_date', { ascending: true })
-      .order('created_at', { ascending: true });
+      .gte('updated_at', cutoff)
+      .order('updated_at', { ascending: false });
 
     if (error) throw error;
     return data || [];

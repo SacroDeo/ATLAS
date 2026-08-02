@@ -1286,13 +1286,11 @@ Return ONLY valid JSON:
 
   async showSkippedTasks(chatId, user) {
     const { formatTask } = require('../../utils/telegram/telegramFormatter');
-    // 3-day user-local window (today + the 2 prior days). Dates are computed in
-    // the user's timezone because assigned_date is stored user-local — using
-    // server-UTC here would drift by a day for non-UTC users.
-    const tz = user.timezone || 'UTC';
-    const today = timezoneUtils.getLocalDateString(tz);
-    const windowStart = timezoneUtils.getLocalDateStringDaysAgo(tz, 2);
-    const tasks = await taskQueries.getSkippedTasksInRange(user.id, windowStart, today);
+    // Tasks skipped in the last 3 days. Keyed on when the skip happened
+    // (updated_at), not on the task's assigned_date — a skipped carry-over task
+    // should still appear here. updated_at is an absolute UTC instant, so no
+    // user-local timezone math is needed.
+    const tasks = await taskQueries.getRecentlySkippedTasks(user.id, 3);
     if (tasks.length === 0) {
       await telegramClient.sendMessage(this.bot, chatId, '✅ No skipped tasks in the last 3 days.');
       return;
