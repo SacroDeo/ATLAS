@@ -250,11 +250,15 @@ class DailyCron {
       }
 
       if (totalYesterday > 0 && completedYesterday === totalYesterday) {
-        await userQueries.updateStreak(user.id, true);
+        const updated = await userQueries.updateStreak(user.id, true);
+        // Keep the in-memory user in sync so sendDailyTasks renders today's
+        // streak, not the stale pre-update value.
+        if (updated) user.current_streak = updated.current_streak;
       } else if (totalYesterday > 0) {
         const completionRate = (completedYesterday / totalYesterday) * 100;
         if (completionRate < 50) {
-          await userQueries.resetStreak(user.id);
+          const updated = await userQueries.resetStreak(user.id);
+          if (updated) user.current_streak = updated.current_streak;
         }
       }
 

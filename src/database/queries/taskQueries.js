@@ -188,8 +188,11 @@ async deactivateActiveTasks(userId, date = null) {
       .from('tasks')
       .select('*')
       .eq('id', taskId)
-      .single();
+      .maybeSingle();
 
+    // maybeSingle() returns null data (no error) when no row matches, so
+    // callers can rely on a falsy return for "task not found" instead of
+    // this throwing PGRST116 and skipping their guard.
     if (error) throw error;
     return data;
   },

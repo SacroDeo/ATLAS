@@ -58,7 +58,7 @@ const extra = parts.slice(3).join(':');
     }
 
     try {
-      return handler.handle({ callbackQuery, ctx, action, id, extra });
+      return await handler.handle({ callbackQuery, ctx, action, id, extra });
     } catch (error) {
       logger.error(`[callbackRouter] Error routing ${data}:`, error);
       return answerCallback(ctx, 'Something went wrong.', { showAlert: false });
