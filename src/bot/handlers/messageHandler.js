@@ -1239,6 +1239,18 @@ Return ONLY valid JSON:
         await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
         break;
       }
+      case '/makebeta': {
+        const { feedbackCommands } = require('../commands/feedbackCommands');
+        if (await feedbackCommands.handleMakeBeta(this.bot, chatId, telegramId, commandArgs, true)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
+      case '/unmakebeta': {
+        const { feedbackCommands } = require('../commands/feedbackCommands');
+        if (await feedbackCommands.handleMakeBeta(this.bot, chatId, telegramId, commandArgs, false)) break;
+        await telegramClient.sendMessage(this.bot, chatId, 'Unknown command. Use /help.', inlineKeyboards.mainMenu());
+        break;
+      }
       case '/paid': {
         const { premiumCommands } = require('../commands/premiumCommands');
         await premiumCommands.handlePaid(this.bot, chatId, telegramId, commandArgs, user);
@@ -1420,6 +1432,8 @@ Return ONLY valid JSON:
         '/verifypay ID [ok|no] — Manually verify a payment\n' +
         '/betastats — Beta tester metrics\n' +
         '/beta [days] — Per-user beta roster (genuine engagement)\n' +
+        '/makebeta ID — Tag a user as an invited beta tester\n' +
+        '/unmakebeta ID — Untag a beta tester\n' +
         '/paid REF — Test UPI payment flow';
     }
 

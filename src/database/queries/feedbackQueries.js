@@ -56,6 +56,12 @@ const feedbackQueries = {
 
   // Per-user beta roster for /beta — the gaming-resistant monitor.
   //
+  // Shows ALL real users (excl. admin + founding test accounts), with invited
+  // beta testers (is_beta=true) tagged and sorted to the top. This lets the
+  // founder both (a) judge tagged testers for founding-tier rewards, and (b)
+  // discover strong ORGANIC users worth converting — one who isn't a tester but
+  // out-engages them would be invisible if we filtered testers only.
+  //
   // WHY these signals: rewarding raw "days active" invites greed-driven fake
   // usage (Goodhart's Law) — a tester logs in daily just to earn free premium,
   // giving us worthless retention data. So instead of one gameable number we
@@ -81,10 +87,11 @@ const feedbackQueries = {
     const sinceDate = new Date(Date.now() - days * 864e5).toISOString().split('T')[0];
     const sinceTs = new Date(Date.now() - days * 864e5).toISOString();
 
-    // Real beta testers only.
+    // Real users only. Keep normal (non-beta) users in — they're tagged in the
+    // output, not filtered out — so organic stars stay visible.
     let usersQ = supabase
       .from('users')
-      .select('id, telegram_id, username, first_name, current_streak, longest_streak, last_active, created_at')
+      .select('id, telegram_id, username, first_name, is_beta, current_streak, longest_streak, last_active, created_at')
       .eq('onboarding_completed', true)
       .neq('tier', 'founding');
     if (adminId) usersQ = usersQ.neq('telegram_id', adminId);
@@ -184,6 +191,7 @@ const feedbackQueries = {
           telegramId: b.user.telegram_id,
           username: b.user.username,
           firstName: b.user.first_name,
+          isBeta: !!b.user.is_beta,
           currentStreak: b.user.current_streak || 0,
           longestStreak: b.user.longest_streak || 0,
           lastActive: b.user.last_active,
@@ -198,7 +206,9 @@ const feedbackQueries = {
           score: Math.round(score * 10) / 10,
         };
       })
-      .sort((a, b) => b.score - a.score);
+      // Invited testers first (that's who /beta is primarily for), then by
+      // genuine-engagement score within each group.
+      .sort((a, b) => (Number(b.isBeta) - Number(a.isBeta)) || (b.score - a.score));
   },
 };
 

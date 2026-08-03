@@ -5,11 +5,18 @@
 //   /betastats        — admin only; live beta health numbers from the DB.
 const config = require('../../config');
 const feedbackQueries = require('../../database/queries/feedbackQueries');
+const premiumQueries = require('../../database/queries/premiumQueries');
 const telegramClient = require('../../utils/telegram/telegramClient');
 const logger = require('../../utils/logger');
 
 function adminId() {
   return config.telegram.adminId || process.env.ADMIN_TELEGRAM_ID;
+}
+
+// Escape Telegram Markdown (v1) control chars so usernames/names can't break
+// formatting or inject markup.
+function esc(s) {
+  return String(s || '').replace(/([*_`\[])/g, '\\$1');
 }
 
 const feedbackCommands = {
@@ -112,11 +119,12 @@ const feedbackCommands = {
     return true;
   },
 
-  // /beta [days] — admin-only per-user monitor. Unlike /betastats (aggregate
-  // counts), this ranks each real tester by GENUINE engagement so the founder
-  // can decide who earns lifetime founding tier — WITHOUT rewarding gameable
-  // "days active". See feedbackQueries.betaRoster() for why each signal is
-  // hard to fake. Window defaults to 21 days (the ~3-week beta observation).
+  // /beta [days] — admin-only per-user monitor. Shows ALL real users with
+  // invited beta testers (🧪) tagged and sorted to the top, organic users (👤)
+  // below — so the founder can judge testers for founding-tier rewards AND spot
+  // strong organic users worth converting. Signals are gaming-resistant (see
+  // feedbackQueries.betaRoster()) rather than gameable raw "days active".
+  // Window defaults to 21 days (the ~3-week beta observation).
   async handleBetaRoster(bot, chatId, telegramId, args) {
     const admin = adminId();
     if (!admin || String(telegramId) !== String(admin)) return false; // silent for non-admins
@@ -127,18 +135,20 @@ const feedbackCommands = {
     const roster = await feedbackQueries.betaRoster(days);
     if (roster.length === 0) {
       await telegramClient.sendMessage(bot, chatId,
-        `🧪 *Beta roster (last ${days}d)*\n\nNo real beta testers yet.`,
+        `🧪 *Beta roster (last ${days}d)*\n\nNo users yet.`,
         { parse_mode: 'Markdown' });
       return true;
     }
 
-    const esc = (s) => String(s || '').replace(/([*_`\[])/g, '\\$1');
+    const nBeta = roster.filter(r => r.isBeta).length;
+    const nNormal = roster.length - nBeta;
     const lines = roster.map((r, i) => {
+      const tag = r.isBeta ? '🧪' : '👤';
       const name = esc(r.firstName || r.username || `id:${r.telegramId}`);
       const handle = r.username ? ` (@${esc(r.username)})` : '';
       // Two lines per tester: identity + the effortful signals underneath.
       return (
-        `${i + 1}. *${name}*${handle}\n` +
+        `${tag} ${i + 1}. *${name}*${handle}\n` +
         `   🔥 ${r.currentStreak}d · 📅 ${r.daysActive} active · ✅ ${r.completionPct}% ` +
         `(${r.completed}/${r.assigned})\n` +
         `   ✍️ ${r.ownTasks} own · 💬 ${r.realMsgs} msgs · 📣 ${r.feedback} fb · ` +
@@ -148,7 +158,8 @@ const feedbackCommands = {
 
     // Telegram caps messages at 4096 chars — chunk so a large cohort never
     // silently truncates the tail (which would hide the least-engaged testers).
-    const header = `🧪 *Beta roster — last ${days}d* (${roster.length} testers, ranked by genuine engagement)\n\n`;
+    const header =
+      `🧪 *Beta roster — last ${days}d* (${nBeta} beta · ${nNormal} normal)\n\n`;
     const legend =
       `\n\n_⭐ score = effort-weighted: own tasks & feedback count most, ` +
       `raw days active least. High days but low everything else = likely gaming._`;
@@ -167,6 +178,48 @@ const feedbackCommands = {
     for (const chunk of chunks) {
       await telegramClient.sendMessage(bot, chatId, chunk, { parse_mode: 'Markdown' });
     }
+    return true;
+  },
+
+  // /makebeta <telegram_id> [id|@username] — tag an invited tester.
+  // /unmakebeta <telegram_id> — untag. Admin only, silent for non-admins.
+  async handleMakeBeta(bot, chatId, telegramId, args, isBeta) {
+    const admin = adminId();
+    if (!admin || String(telegramId) !== String(admin)) return false;
+
+    const target = (args || '').trim();
+    if (!target) {
+      await telegramClient.sendMessage(bot, chatId,
+        `🧪 ${isBeta ? 'Tag a beta tester' : 'Untag a beta tester'}\n\n` +
+        `Usage: ${isBeta ? '/makebeta' : '/unmakebeta'} <telegram_id>`);
+      return true;
+    }
+    // Accept a bare numeric id, or strip a leading @ from a username (we only
+    // match by id; @username is accepted for convenience and resolved by the
+    // admin's own lookups — we always match the stored telegram_id).
+    const clean = target.replace(/^@/, '');
+    const numeric = Number(clean);
+    if (!Number.isFinite(numeric)) {
+      await telegramClient.sendMessage(bot, chatId,
+        `❌ Couldn't parse \`${target}\` as a numeric telegram_id. ` +
+        `Pass the user's numeric id, e.g. \`${isBeta ? '/makebeta' : '/unmakebeta'} 123456789\`.`,
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+
+    const row = await premiumQueries.setBeta(numeric, isBeta);
+    if (!row) {
+      await telegramClient.sendMessage(bot, chatId,
+        `❌ No user found with telegram_id \`${numeric}\`. ` +
+        `They must have pressed /start first.`,
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+    const who = [row.first_name, row.username ? `@${row.username}` : null]
+      .filter(Boolean).join(' ') || String(numeric);
+    const verb = isBeta ? '🧪 marked as a beta tester' : '👤 unmarked as a beta tester';
+    await telegramClient.sendMessage(bot, chatId,
+      `✅ *${esc(who)}* (id \`${numeric}\`) ${verb}.`, { parse_mode: 'Markdown' });
     return true;
   },
 };

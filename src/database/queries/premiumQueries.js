@@ -24,6 +24,19 @@ const premiumQueries = {
     if (error) throw error;
   },
 
+  // Tag / untag an invited beta tester. Returns the updated row (null if no user
+  // with that telegram_id exists) so the admin command can confirm or warn.
+  async setBeta(telegramId, isBeta) {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ is_beta: isBeta })
+      .eq('telegram_id', telegramId)
+      .select('telegram_id, username, first_name, is_beta')
+      .maybeSingle();
+    if (error) throw error;
+    return data; // null = no such user
+  },
+
   // Atomic single-use redemption: the .is('redeemed_by', null) filter makes
   // a second redemption update 0 rows — no race, no double-spend.
   async redeemCoupon(code, telegramId) {
