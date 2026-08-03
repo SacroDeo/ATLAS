@@ -111,6 +111,64 @@ const feedbackCommands = {
       { parse_mode: 'Markdown' });
     return true;
   },
+
+  // /beta [days] — admin-only per-user monitor. Unlike /betastats (aggregate
+  // counts), this ranks each real tester by GENUINE engagement so the founder
+  // can decide who earns lifetime founding tier — WITHOUT rewarding gameable
+  // "days active". See feedbackQueries.betaRoster() for why each signal is
+  // hard to fake. Window defaults to 21 days (the ~3-week beta observation).
+  async handleBetaRoster(bot, chatId, telegramId, args) {
+    const admin = adminId();
+    if (!admin || String(telegramId) !== String(admin)) return false; // silent for non-admins
+
+    let days = parseInt((args || '').trim(), 10);
+    if (!Number.isFinite(days) || days < 1 || days > 120) days = 21;
+
+    const roster = await feedbackQueries.betaRoster(days);
+    if (roster.length === 0) {
+      await telegramClient.sendMessage(bot, chatId,
+        `🧪 *Beta roster (last ${days}d)*\n\nNo real beta testers yet.`,
+        { parse_mode: 'Markdown' });
+      return true;
+    }
+
+    const esc = (s) => String(s || '').replace(/([*_`\[])/g, '\\$1');
+    const lines = roster.map((r, i) => {
+      const name = esc(r.firstName || r.username || `id:${r.telegramId}`);
+      const handle = r.username ? ` (@${esc(r.username)})` : '';
+      // Two lines per tester: identity + the effortful signals underneath.
+      return (
+        `${i + 1}. *${name}*${handle}\n` +
+        `   🔥 ${r.currentStreak}d · 📅 ${r.daysActive} active · ✅ ${r.completionPct}% ` +
+        `(${r.completed}/${r.assigned})\n` +
+        `   ✍️ ${r.ownTasks} own · 💬 ${r.realMsgs} msgs · 📣 ${r.feedback} fb · ` +
+        `🧠 ${r.deepSocratic} deep · ⭐ ${r.score}`
+      );
+    });
+
+    // Telegram caps messages at 4096 chars — chunk so a large cohort never
+    // silently truncates the tail (which would hide the least-engaged testers).
+    const header = `🧪 *Beta roster — last ${days}d* (${roster.length} testers, ranked by genuine engagement)\n\n`;
+    const legend =
+      `\n\n_⭐ score = effort-weighted: own tasks & feedback count most, ` +
+      `raw days active least. High days but low everything else = likely gaming._`;
+    const chunks = [];
+    let buf = header;
+    for (const line of lines) {
+      if ((buf + line + '\n\n').length > 3800) {
+        chunks.push(buf.trimEnd());
+        buf = '';
+      }
+      buf += line + '\n\n';
+    }
+    if (buf.trim()) chunks.push(buf.trimEnd());
+    chunks[chunks.length - 1] += legend;
+
+    for (const chunk of chunks) {
+      await telegramClient.sendMessage(bot, chatId, chunk, { parse_mode: 'Markdown' });
+    }
+    return true;
+  },
 };
 
 module.exports = { feedbackCommands };
