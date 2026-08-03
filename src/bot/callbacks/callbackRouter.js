@@ -3,6 +3,7 @@ const taskCallbacks = require('./taskCallbacks');
 const roadmapCallbacks = require('./roadmapCallbacks');
 const checkinCallbacks = require('./checkinCallbacks');
 const menuCallbacks = require('./menuCallbacks');
+const adminCallbacks = require('./adminCallbacks');
 const logger = require('../../utils/logger');
 const { answerCallback } = require('../../utils/telegram/replyBuilder');
 
@@ -19,6 +20,7 @@ class CallbackRouter {
       roadmap: roadmapCallbacks,
       checkin: checkinCallbacks,
       menu: menuCallbacks,
+      admin: adminCallbacks,
     };
   }
 

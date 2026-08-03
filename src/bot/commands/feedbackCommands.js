@@ -19,6 +19,32 @@ function esc(s) {
   return String(s || '').replace(/([*_`\[])/g, '\\$1');
 }
 
+// Build the text + inline keyboard for one /beta roster row. Shared by the
+// command (initial send) and the admin callback (in-place refresh) so the two
+// can never drift. `rank` is the 1-based position for display only.
+//
+// callback_data: admin:betatag:<telegramId>:<0|1> — 1 tags beta, 0 untags.
+// Well under Telegram's 64-byte cap even for 19-digit ids.
+function buildBetaRow(r, rank) {
+  const tag = r.isBeta ? '🧪' : '👤';
+  const name = esc(r.firstName || r.username || `id:${r.telegramId}`);
+  const handle = r.username ? ` (@${esc(r.username)})` : '';
+  const text =
+    `${tag} ${rank}. *${name}*${handle}\n` +
+    `🔥 ${r.currentStreak}d · 📅 ${r.daysActive} active · ✅ ${r.completionPct}% ` +
+    `(${r.completed}/${r.assigned})\n` +
+    `✍️ ${r.ownTasks} own · 💬 ${r.realMsgs} msgs · 📣 ${r.feedback} fb · ` +
+    `🧠 ${r.deepSocratic} deep · ⭐ ${r.score}`;
+  const nextFlag = r.isBeta ? '0' : '1';
+  const btnLabel = r.isBeta ? '👤 Unmark beta' : '🧪 Mark as beta';
+  const keyboard = {
+    inline_keyboard: [[
+      { text: btnLabel, callback_data: `admin:betatag:${r.telegramId}:${nextFlag}` },
+    ]],
+  };
+  return { text, keyboard };
+}
+
 const feedbackCommands = {
   async handleFeedback(bot, chatId, telegramId, args, user) {
     const text = (args || '').trim();
@@ -119,11 +145,12 @@ const feedbackCommands = {
     return true;
   },
 
-  // /beta [days] — admin-only per-user monitor. Shows ALL real users with
-  // invited beta testers (🧪) tagged and sorted to the top, organic users (👤)
-  // below — so the founder can judge testers for founding-tier rewards AND spot
-  // strong organic users worth converting. Signals are gaming-resistant (see
-  // feedbackQueries.betaRoster()) rather than gameable raw "days active".
+  // /beta [days] — admin-only per-user monitor. Sends a summary header, then
+  // ONE message per user (invited testers 🧪 first, organic 👤 below), each
+  // carrying a tap-to-toggle beta button. Tapping edits that single message in
+  // place (see adminCallbacks + renderOneBetaRow). This design is chosen
+  // because Telegram inline keyboards can't span a chunked multi-user message,
+  // and per-message buttons let each row refresh itself independently.
   // Window defaults to 21 days (the ~3-week beta observation).
   async handleBetaRoster(bot, chatId, telegramId, args) {
     const admin = adminId();
@@ -142,43 +169,36 @@ const feedbackCommands = {
 
     const nBeta = roster.filter(r => r.isBeta).length;
     const nNormal = roster.length - nBeta;
-    const lines = roster.map((r, i) => {
-      const tag = r.isBeta ? '🧪' : '👤';
-      const name = esc(r.firstName || r.username || `id:${r.telegramId}`);
-      const handle = r.username ? ` (@${esc(r.username)})` : '';
-      // Two lines per tester: identity + the effortful signals underneath.
-      return (
-        `${tag} ${i + 1}. *${name}*${handle}\n` +
-        `   🔥 ${r.currentStreak}d · 📅 ${r.daysActive} active · ✅ ${r.completionPct}% ` +
-        `(${r.completed}/${r.assigned})\n` +
-        `   ✍️ ${r.ownTasks} own · 💬 ${r.realMsgs} msgs · 📣 ${r.feedback} fb · ` +
-        `🧠 ${r.deepSocratic} deep · ⭐ ${r.score}`
-      );
-    });
+    await telegramClient.sendMessage(bot, chatId,
+      `🧪 *Beta roster — last ${days}d* (${nBeta} beta · ${nNormal} normal)\n\n` +
+      `Tap a user's button to mark/unmark them as an invited beta tester.\n\n` +
+      `_⭐ score = effort-weighted: own tasks & feedback count most, raw days ` +
+      `active least. High days but low everything else = likely gaming._`,
+      { parse_mode: 'Markdown' });
 
-    // Telegram caps messages at 4096 chars — chunk so a large cohort never
-    // silently truncates the tail (which would hide the least-engaged testers).
-    const header =
-      `🧪 *Beta roster — last ${days}d* (${nBeta} beta · ${nNormal} normal)\n\n`;
-    const legend =
-      `\n\n_⭐ score = effort-weighted: own tasks & feedback count most, ` +
-      `raw days active least. High days but low everything else = likely gaming._`;
-    const chunks = [];
-    let buf = header;
-    for (const line of lines) {
-      if ((buf + line + '\n\n').length > 3800) {
-        chunks.push(buf.trimEnd());
-        buf = '';
-      }
-      buf += line + '\n\n';
-    }
-    if (buf.trim()) chunks.push(buf.trimEnd());
-    chunks[chunks.length - 1] += legend;
-
-    for (const chunk of chunks) {
-      await telegramClient.sendMessage(bot, chatId, chunk, { parse_mode: 'Markdown' });
+    // One self-contained, individually-refreshable message per user.
+    for (let i = 0; i < roster.length; i++) {
+      const { text, keyboard } = buildBetaRow(roster[i], i + 1);
+      await telegramClient.sendMessage(bot, chatId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
     }
     return true;
+  },
+
+  // Re-render a SINGLE roster row after its beta flag was toggled. Called by the
+  // admin callback; recomputes that one user's current signals so the numbers
+  // (and the 🧪/👤 tag + button) reflect the new state. Edits in place.
+  async renderOneBetaRowEdit(bot, chatId, messageId, targetTelegramId, days = 21) {
+    const roster = await feedbackQueries.betaRoster(days);
+    const idx = roster.findIndex(r => String(r.telegramId) === String(targetTelegramId));
+    if (idx === -1) return; // user fell out of the window; leave message as-is
+    const { text, keyboard } = buildBetaRow(roster[idx], idx + 1);
+    await telegramClient.editMessage(bot, chatId, messageId, text, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
   },
 
   // /makebeta <telegram_id> [id|@username] — tag an invited tester.
