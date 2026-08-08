@@ -6,6 +6,7 @@ const personalityService = require('../../services/personality/personalityServic
 const inlineKeyboards = require('../keyboards/inlineKeyboards');
 const logger = require('../../utils/logger');
 const telegramClient = require('../../utils/telegram/telegramClient');
+const groupMembership = require('../../services/beta/groupMembership');
 const { formatTask, combineSections } = require('../../utils/telegram/telegramFormatter');
 
 class StartCommand {
@@ -32,6 +33,11 @@ class StartCommand {
       if (!user.onboarding_completed) {
         return false;
       }
+
+      // Lazy beta catch-up: if this user is already in the beta group but wasn't
+      // tagged at join time (joined before this feature, or had no row yet),
+      // grant beta + 1 month Pro now. Fire-and-forget — never delays task delivery.
+      groupMembership.catchUpBetaOnStart(this.bot, user).catch(() => {});
 
       const todayTasks = await taskQueries.getDailyTasks(user.id);
 

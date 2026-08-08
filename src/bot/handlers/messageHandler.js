@@ -68,6 +68,13 @@ class MessageHandler {
     const telegramId = msg.from.id;
     let text = msg.text;
 
+    // Only ever converse in private chats. Group/supergroup messages (including
+    // the beta group's chatter and join/leave service messages) also fire the
+    // generic 'message' event — without this guard every group message would be
+    // treated as private onboarding/task input. Group membership is handled by
+    // the dedicated new_chat_members/left_chat_member listeners in server.js.
+    if (msg.chat.type !== 'private') return;
+
     if (!text || text.trim() === '') return;
 
     // INPUT CAP: Telegram already limits messages to ~4096 chars, but cap

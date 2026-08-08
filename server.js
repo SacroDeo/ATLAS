@@ -115,6 +115,41 @@ bot.on('message', async (msg) => {
   }
 });
 
+// ── Beta group membership → entitlements ──────────────────────────────────
+// When BETA_GROUP_ID is configured, joining that group auto-grants beta + 1
+// month free Pro; leaving revokes ONLY the group-granted premium (paid and
+// founding testers are never touched). Both listeners are guarded by the
+// group id, so no other chat can trigger them.
+const groupMembership = require('./src/services/beta/groupMembership');
+
+function isBetaGroup(msg) {
+  const gid = config.telegram.betaGroupId;
+  return gid && String(msg.chat.id) === String(gid);
+}
+
+bot.on('new_chat_members', async (msg) => {
+  try {
+    if (!isBetaGroup(msg)) return;
+    for (const member of msg.new_chat_members || []) {
+      if (member.is_bot) continue; // skip the bot itself and any other bots
+      await groupMembership.grantGroupBeta(bot, member.id);
+    }
+  } catch (error) {
+    logger.error('Beta group join handler error:', error);
+  }
+});
+
+bot.on('left_chat_member', async (msg) => {
+  try {
+    if (!isBetaGroup(msg)) return;
+    const member = msg.left_chat_member;
+    if (!member || member.is_bot) return;
+    await groupMembership.revokeGroupBeta(bot, member.id);
+  } catch (error) {
+    logger.error('Beta group leave handler error:', error);
+  }
+});
+
 bot.on('callback_query', async (callbackQuery) => {
   try {
     await callbackHandler.handleCallback(callbackQuery);

@@ -5,6 +5,10 @@ telegram: {
 token: process.env.TELEGRAM_BOT_TOKEN,
 botUsername: process.env.TELEGRAM_BOT_USERNAME,
 adminId: process.env.ADMIN_TELEGRAM_ID,
+// Numeric chat id of the beta Telegram group (negative, e.g. -1001234567890).
+// When set, joining the group auto-grants beta + 1 month free Pro; leaving
+// revokes the group-granted premium. Leave unset to disable group integration.
+betaGroupId: process.env.BETA_GROUP_ID,
 },
 dashboard: {
 jwtSecret: process.env.JWT_SECRET,
