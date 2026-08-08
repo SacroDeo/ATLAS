@@ -288,6 +288,31 @@ async deactivateActiveTasks(userId, date = null) {
     return data || [];
   },
 
+  // Roll every still-active, still-pending task dated BEFORE `toDate` forward
+  // onto `toDate`. Backs the "Keep them — I'll finish later" decision: carried-
+  // over tasks are dated in the past, but day-scoped reads (getDailyTasks, used
+  // by /start and show-tasks) only match today's date — so without re-dating,
+  // kept tasks stay alive but invisible. assigned_date + due_date move together
+  // (mirrors the reschedule/simplified-task paths) so day-scoped queries stay
+  // consistent. Returns the number of tasks moved.
+  async rollPendingForwardTo(userId, toDate) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({
+        assigned_date: toDate,
+        due_date: toDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .eq('status', 'pending')
+      .lt('assigned_date', toDate)
+      .select('id');
+
+    if (error) throw error;
+    return (data || []).length;
+  },
+
   // Deactivate every still-pending task up to and including `date`.
   // Deactivated tasks fall out of every is_active=true query (today's list,
   // progress, streak), so they stay NEUTRAL — they neither count as completed

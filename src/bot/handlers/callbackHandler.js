@@ -994,13 +994,19 @@ async handleStuckResponse(
     const today = timezoneUtils.getCurrentTimeInZone(userTz).toISOString().split('T')[0];
 
     if (data !== 'pending:skipall') {
-      // pending:keep — leave everything as-is, user finishes them first.
+      // pending:keep — user finishes the old tasks first. They're dated in the
+      // past (that's why the keep/skip gate fired), and day-scoped reads like
+      // /start only match today — so roll them forward onto today, otherwise the
+      // kept tasks stay alive but never appear when the user opens /start.
+      const moved = await taskQueries.rollPendingForwardTo(user.id, today);
       stateManager.clearContext(user.telegram_id);
       await telegramClient.editMessage(
         this.bot,
         chatId,
         messageId,
-        "📌 Got it — finish your previous tasks first. Mark them ✅ Done, then ask me for new tasks."
+        moved > 0
+          ? "📌 Got it — I've kept your previous tasks and moved them into today's list. Open /start to finish them, then ask me for new ones."
+          : "📌 Got it — finish your previous tasks first. Mark them ✅ Done, then ask me for new tasks."
       );
       return;
     }
