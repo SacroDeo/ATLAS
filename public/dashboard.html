@@ -6,6 +6,11 @@
 <title>ATLAS · Operator Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Warm the connections the Telegram login widget uses (telegram.org serves
+     the script, oauth.telegram.org serves the button iframe) so the login
+     button renders without a cold DNS/TLS handshake when the gate appears. -->
+<link rel="preconnect" href="https://telegram.org">
+<link rel="preconnect" href="https://oauth.telegram.org">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -358,6 +363,15 @@ async function api(path) {
   return r.json();
 }
 
+// Kick off the login config fetch IMMEDIATELY, in parallel with the /me
+// session check. A logged-out visitor otherwise waits for /me to 401 AND
+// THEN for /config serially before the Telegram widget can even start
+// loading — two cold round-trips back to back. Firing it now means the
+// bot username is usually already in hand by the time the gate renders.
+// Prefixed to swallow rejection so it never throws an unhandled rejection
+// if the user is actually logged in and the gate never uses it.
+const cfgPromise = api('/config').catch(() => null);
+
 // --- Boot: check session, else show login gate ---
 async function boot() {
   try {
@@ -384,7 +398,10 @@ async function showGate() {
   }
 
   try {
-    const cfg = await api('/config');
+    // Reuse the /config fetch already started at boot (parallel with /me)
+    // instead of issuing a fresh serial round-trip here. If that in-flight
+    // request failed, fall back to a direct call so the gate still works.
+    const cfg = (await cfgPromise) || (await api('/config'));
     const mount = document.getElementById('tg-widget');
     const isLocalhost = ['localhost', '127.0.0.1', ''].includes(location.hostname);
 
