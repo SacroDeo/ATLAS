@@ -93,24 +93,32 @@ const inlineKeyboards = {
   },
 
   mainMenu() {
-    return {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '📊 Progress', callback_data: 'menu:progress' },
-            { text: '📈 Stats', callback_data: 'menu:stats' },
-          ],
-          [
-            { text: '🎯 My Goal', callback_data: 'menu:goal' },
-            { text: '📋 Review', callback_data: 'menu:review' },
-          ],
-          [
-            { text: '🗺️ Roadmap', callback_data: 'roadmap:menu' },
-            { text: '❓ Help', callback_data: 'menu:help' },
-          ],
-        ],
-      },
-    };
+    const config = require('../../config');
+    const rows = [
+      [
+        { text: '📊 Progress', callback_data: 'menu:progress' },
+        { text: '📈 Stats', callback_data: 'menu:stats' },
+      ],
+      [
+        { text: '🎯 My Goal', callback_data: 'menu:goal' },
+        { text: '📋 Review', callback_data: 'menu:review' },
+      ],
+      [
+        { text: '🗺️ Roadmap', callback_data: 'roadmap:menu' },
+        { text: '❓ Help', callback_data: 'menu:help' },
+      ],
+    ];
+
+    // Telegram rejects non-https button URLs (localhost included), and this menu
+    // is attached to nearly every reply — a bad URL would fail the whole send,
+    // not just the button. Omit the row unless DASHBOARD_URL is a real https URL.
+    if (/^https:\/\//.test(config.dashboard.url || '')) {
+      rows.push([
+        { text: '🌐 Web Dashboard', url: `${config.dashboard.url}/dashboard.html` },
+      ]);
+    }
+
+    return { reply_markup: { inline_keyboard: rows } };
   },
     pendingDecision() {
     return {
