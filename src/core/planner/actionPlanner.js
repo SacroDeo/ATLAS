@@ -29,6 +29,56 @@ function extractTimeConstraint(text = '') {
   return null;
 }
 
+// Conversational openers, social noise, and emotional statements. These carry no
+// action, so routing them through the AI intent classifier only adds latency and
+// a chance of being forced into a task intent by a prompt whose job is finding
+// task intents. Matched here, they go straight to chat.
+//
+// Deliberately anchored and narrow: it must never swallow a real request. "hi"
+// matches; "hi, delete task 3" does not — the trailing clause fails the anchor,
+// so it falls through to the normal path.
+const CONVERSATIONAL_PATTERNS = [
+  // Greetings and openers, with optional filler ("hey man", "yo atlas", "hi!!")
+  /^(hi|hii+|hey+|heyy+|hello+|helo|yo|sup|wassup|whatsup|oi|hola|namaste)\b[\s!.,]*(there|man|bro|dude|buddy|atlas|bot)?[\s!.,?]*$/i,
+  /^(good\s*(morning|afternoon|evening|night)|gm|gn)\b[\s!.,]*(atlas|man|bro)?[\s!.,?]*$/i,
+
+  // "what's up" and its many spellings
+  /^(what'?s?\s*up|whats\s*up|wass?up|wyd|what\s*you\s*doing|how'?s?\s*it\s*going|how\s*are\s*(you|u|ya)|how\s*(you\s*)?doin[g']?|you\s*(there|up|around)|u\s*(there|up))\b[\s!.,?]*(man|bro|dude|atlas)?[\s!.,?]*$/i,
+
+  // Explicit requests to converse — the exact case that used to get a canned
+  // "tell me more about what you need" instead of "sure, go ahead".
+  /^(can|could|may)\s*(we|i)\s*(talk|chat|discuss|speak)\b.{0,40}$/i,
+  // "wanna"/"gonna" already contain the "to", so it must be optional here.
+  /^(i\s*)?(want|wanna|need|would\s*like)\s*(to\s*)?(talk|chat|discuss|speak|vent|ask)\b.{0,40}$/i,
+  /^(let'?s|lets)\s*(talk|chat|discuss)\b.{0,40}$/i,
+  /^(you\s*)?(free|available|busy)\s*(to\s*(talk|chat))?[\s?!.]*$/i,
+  /^(are\s*you|r\s*u)\s*(there|awake|alive|online|real)[\s?!.]*$/i,
+
+  // Dropping the thread / brushing it off
+  /^(never\s*mind|nevermind|nvm|forget\s*it|forget\s*that|no\s*worries|it'?s?\s*fine|leave\s*it|drop\s*it)\b[\s!.,]*(lol|lmao|haha|😂)?[\s!.,?]*$/i,
+
+  // Pure social acknowledgement — no action to take
+  /^(thanks+|thank\s*you|thx|ty|tysm|appreciate\s*(it|you))\b[\s!.,]*(man|bro|dude|atlas|a\s*lot|so\s*much)?[\s!.,?]*$/i,
+  /^(ok|okay|okey|k|kk|cool|nice|great|awesome|sweet|alright|aight|got\s*it|gotcha|understood|sure|yep|yeah|yup|fine)\b[\s!.,]*$/i,
+  /^(bye|goodbye|cya|see\s*(you|ya)|good\s*night|gn|later|ttyl|peace)\b[\s!.,]*(man|bro|atlas)?[\s!.,?]*$/i,
+  /^(lol|lmao|lmfao|haha+|hehe+|hah|😂|🤣|😅|👍|❤️|🔥)[\s!.,]*$/i,
+
+  // Asking about ATLAS itself, or about the conversation so far. These read as
+  // "show me something" to a task classifier; they're conversation.
+  /^(who|what)\s*(are|r)\s*(you|u)\b.{0,30}$/i,
+  /^(do|d)\s*(you|u)\s*(remember|recall)\b.{0,80}$/i,
+  /^(what|when)\s*(did|do)\s*we\s*(talk|discuss|speak|say)\b.{0,80}$/i,
+  /^(what|when)\s*was\s*the\s*last\s*time\s*we\b.{0,60}$/i,
+];
+
+function isConversational(message) {
+  const trimmed = message.trim();
+  // Long messages are substantive by definition — let the real classifier read
+  // them rather than pattern-matching a prefix.
+  if (trimmed.length > 90) return false;
+  return CONVERSATIONAL_PATTERNS.some(re => re.test(trimmed));
+}
+
 class ActionPlanner {
 
   // Fast local pre-classifier — handles obvious intents without AI call
@@ -75,7 +125,10 @@ _localClassify(message) {
   if (/^(generate tasks?|make tasks?|create tasks?|new tasks?)$/i.test(lower))
     return { intent: ACTIONS.GENERATE_TASKS, confidence: 1.0, payload: {} };
 
-  if (/^(hello|hi|hey|what's up|sup)$/i.test(lower))
+  // Conversational openers, social noise, emotional statements, memory
+  // questions. Checked AFTER every action pattern above, so a real request is
+  // never mistaken for chatter.
+  if (isConversational(message))
     return { intent: ACTIONS.GENERAL_CHAT, confidence: 1.0, payload: {} };
 
   // Time constraint
@@ -249,6 +302,14 @@ GENERAL_CHAT applies when:
 - No clear action is implied
 - Asking for advice without wanting tasks changed
 - When genuinely ambiguous with no history context to resolve it
+- Greetings, small talk, jokes, thanks, goodbyes, or emotional statements
+- The user asks about you, about your memory, or about an earlier conversation
+- The user drops a topic ("never mind", "forget it") or changes the subject
+- IMPORTANT: GENERAL_CHAT is a perfectly good answer, not a failure. Only pick an
+  action intent when the user actually wants something DONE to their tasks or
+  goal. If in doubt between an action and conversation, choose GENERAL_CHAT —
+  replying naturally costs nothing, while wrongly firing an action edits their
+  real data.
 
 Return ONLY valid JSON, no extra text:
 {
