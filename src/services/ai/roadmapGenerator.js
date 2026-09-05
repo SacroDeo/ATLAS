@@ -6,6 +6,7 @@ const aiOrchestrator = require('./aiOrchestrator');
 const userQueries = require('../../database/queries/userQueries');
 const logger = require('../../utils/logger');
 const roadmapValidator = require('./validators/roadmapValidator');
+const { sanitizeForPrompt } = require('../../utils/promptSanitizer');
 
 // ─── domain_knowledge → human-readable label ─────────────────────────────────
 const KNOWLEDGE_LABELS = {
@@ -114,12 +115,12 @@ Reason about the actual intent behind the goal.
 STEP 2 — ROADMAP GENERATION:
 ═══════════════════════════════════
 
-USER GOAL: "${goalText}"
-AVAILABLE TIME PER DAY: "${user.available_time || '1 hour'}"
+USER GOAL: "${sanitizeForPrompt(goalText, 500)}"
+AVAILABLE TIME PER DAY: "${sanitizeForPrompt(user.available_time || '1 hour', 60)}"
 TIMEFRAME: ${timeframe}
 PHASES TO GENERATE: ${phaseCount} ${phaseLabel}s
 USER KNOWLEDGE LEVEL: ${knowledgeLabel}
-USER STRUGGLE: "${user.biggest_struggle || 'staying consistent'}"
+USER STRUGGLE: "${sanitizeForPrompt(user.biggest_struggle || 'staying consistent', 300)}"
 
 ═══════════════════════════════════
 BEHAVIORAL PACING (OVERRIDES ALL ELSE):
@@ -149,7 +150,7 @@ ROADMAP RULES:
 
 OUTPUT — Respond with ONLY this JSON (no other text):
 {
-  "roadmap_text": "🗺️ *Your Roadmap — ${goalText.trim()}:*\n*${phaseLabel} 1: [Specific Phase Name]* — [2 sentences with concrete tools/skills/actions and how they connect to the outcome]\n...",
+  "roadmap_text": "🗺️ *Your Roadmap — ${sanitizeForPrompt(goalText.trim(), 500)}:*\n*${phaseLabel} 1: [Specific Phase Name]* — [2 sentences with concrete tools/skills/actions and how they connect to the outcome]\n...",
   "roadmap_json": {
     "phases": [
       {

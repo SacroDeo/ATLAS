@@ -87,7 +87,7 @@ class ReengagementCron {
     // Signal 1: days since last completion (timezone-aware date diff — do NOT
     // subtract raw timestamps, the completion is stored as an instant but we
     // compare calendar days in the user's zone).
-    const lastCompletionDate = await taskQueries.getLastCompletionDate(user.id);
+    const lastCompletionDate = await taskQueries.getLastCompletionDate(user.id, userTz);
     if (!lastCompletionDate) return; // never completed anything — that's onboarding's job, not ours
     const today = timezoneUtils.getLocalDateString(userTz);
     const daysSinceLastCompletion = this._dayDiff(lastCompletionDate, today);

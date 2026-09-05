@@ -263,8 +263,11 @@ class MessageHandler {
       // ── PRIORITY 9: Structured action messages ─────────────────────────────
       const lower = text.toLowerCase().trim();
 
-      // Roadmap intent — checked BEFORE generic 'show' catch
-      if (lower.includes('roadmap') || lower.includes('my plan') || lower.includes('show plan')) {
+      // Roadmap intent — checked BEFORE generic 'show' catch.
+      // Anchored so ONLY a bare "roadmap"/"my plan" request opens the menu;
+      // a sentence like "is my roadmap too hard?" falls through to the planner
+      // and gets answered instead of hijacked (BUG-017).
+      if (/^(show|view|see|open)?\s*(me\s+)?(my\s+)?(roadmap|plan)[?.!]*$/i.test(lower.trim())) {
         await telegramClient.sendMessage(
           this.bot,
           chatId,
@@ -328,6 +331,16 @@ class MessageHandler {
       await conversationEngine.appendHistory(user.id, 'user', text);
       await conversationEngine.clearOldHistory(user.id);
       const context = await contextBuilder.build(user.telegram_id, text);
+      // build() returns null for an unknown user or any DB error mid-flight;
+      // actionPlanner.plan() would then throw on context.messageText (BUG-016).
+      if (!context) {
+        await telegramClient.sendMessage(
+          this.bot,
+          chatId,
+          "😅 I couldn't load your account just now. Give me a moment and try again."
+        );
+        return;
+      }
       const plan = await actionPlanner.plan(context);
       logger.info(`Planner result: intent=${plan?.intent}, hasPayload=${!!plan?.payload}`);
       const validation = actionValidator.validate(plan);
@@ -496,7 +509,7 @@ class MessageHandler {
    * Both manual entry and single-task add flow through this.
    */
   async _createTasksForUser(user, taskTitles) {
-    const todayDate = new Date().toISOString().split('T')[0];
+    const todayDate = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
     const tasksToCreate = taskTitles.map(title => ({
       title: title.substring(0, 500),
       description: title.substring(0, 1000),
@@ -673,7 +686,7 @@ Never sound like a form or a productivity robot.`
 
   async handleProgressCheck(chatId, user) {
     try {
-      const progress = await taskService.getTodayProgress(user.id);
+      const progress = await taskService.getTodayProgress(user.id, user.timezone || 'UTC');
       const messages = [
         {
           role: 'system',
@@ -829,8 +842,7 @@ Be warm and motivating. Reference their goal: ${user.goal}`
   async handleStartNow(chatId, user) {
     try {
       const userTimezone = user.timezone || 'UTC';
-      const userNow = timezoneUtils.getCurrentTimeInZone(userTimezone);
-      const userToday = userNow.toISOString().split('T')[0];
+      const userToday = timezoneUtils.getLocalDateString(userTimezone);
       if (user.last_tasks_sent_date === userToday) {
         await telegramClient.sendMessage(
           this.bot,
@@ -872,7 +884,7 @@ Be warm and motivating. Reference their goal: ${user.goal}`
       return;
     }
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
       const tasks = await taskQueries.getDailyTasks(user.id, today);
       if (!tasks || tasks.length === 0) {
         await telegramClient.sendMessage(
@@ -937,7 +949,7 @@ Be warm and motivating. Reference their goal: ${user.goal}`
   async handleAddTaskDescription(chatId, text, user) {
     try {
       stateManager.clear(user.telegram_id);
-      const todayDate = new Date().toISOString().split('T')[0];
+      const todayDate = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
       const messages = [
         {
           role: 'system',
@@ -1007,9 +1019,11 @@ Return ONLY valid JSON:
 
   async showAndAllowTaskModification(chatId, text, user) {
     try {
+      const userTz = user.timezone || 'UTC';
+      const today = timezoneUtils.getLocalDateString(userTz);
       const targetDate = text.toLowerCase().includes('tomorrow')
-        ? new Date(Date.now() + 86400000).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
+        ? timezoneUtils.addDaysToDateString(today, 1)
+        : today;
       let tasks = await taskQueries.getDailyTasks(user.id, targetDate);
       if (tasks.length === 0) {
         await telegramMessage.sendSafe(this.bot, chatId, '🔄 Preparing tomorrow\'s tasks...');
@@ -1092,7 +1106,7 @@ Return ONLY valid JSON:
         await this.showProgress(chatId, user);
         break;
       case '/memory':
-        await memoryService.updateMemory(user.id);
+        await memoryService.updateMemory(user.id, user.timezone || 'UTC');
         await telegramClient.sendMessage(this.bot, chatId, '✅ Memory updated.');
         break;
       case '/stats':
@@ -1284,7 +1298,10 @@ Return ONLY valid JSON:
           const timezoneUtils = require('../../utils/timezoneUtils');
           const cronInstance = new ReengagementCron(this.bot);
 
-          const lastCompletionDate = await taskQueries.getLastCompletionDate(user.id);
+          const lastCompletionDate = await taskQueries.getLastCompletionDate(
+            user.id,
+            user.timezone || 'UTC'
+          );
           const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
           const days = lastCompletionDate
             ? cronInstance._dayDiff(lastCompletionDate, today)
@@ -1340,7 +1357,8 @@ Return ONLY valid JSON:
   }
 
   async showTodayTasks(chatId, user) {
-    const tasks = await taskQueries.getDailyTasks(user.id);
+    const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+    const tasks = await taskQueries.getDailyTasks(user.id, today);
     if (tasks.length === 0) {
       // Silent no-reply here made the bot look dead.
       await telegramClient.sendMessage(
@@ -1360,18 +1378,20 @@ Return ONLY valid JSON:
   }
 
   async showProgress(chatId, user) {
-    const progress = await taskService.getTodayProgress(user.id);
+    const progress = await taskService.getTodayProgress(user.id, user.timezone || 'UTC');
     const progressText = telegramMessage.formatProgress(progress, user);
     await telegramMessage.sendMarkdownV2(this.bot, chatId, progressText);
   }
 
   async showStats(chatId, user) {
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
+    // The user's week, in the user's timezone. The old form also mis-derived
+    // Monday: on a Sunday, `getDate() - getDay() + 1` lands on TOMORROW, so
+    // the range started in the future and the week's stats came back empty.
+    const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
     const weekStats = await taskQueries.getCompletionStats(
       user.id,
-      startOfWeek.toISOString().split('T')[0],
-      new Date().toISOString().split('T')[0]
+      timezoneUtils.startOfWeekDateString(today),
+      today
     );
     const statsText = telegramMessage.formatStats(user, weekStats);
     await telegramMessage.sendMarkdownV2(this.bot, chatId, statsText);

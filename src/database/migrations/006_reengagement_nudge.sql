@@ -1,6 +1,6 @@
--- Add re-engagement nudge tracking to users table
--- Run this migration on your Supabase database (e.g. node scripts/run-migration.js add_reengagement_nudge.sql)
-
+-- Migration 006 — re-engagement nudge timestamp on users
+-- (was migrations/add_reengagement_nudge.sql)
+--
 -- Timestamp of the last sympathetic "did you forget your goal?" nudge we sent.
 -- Set when a nudge is delivered; cleared (back to NULL) whenever the user
 -- completes a task, so a fresh inactivity spell can be nudged again.

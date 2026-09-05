@@ -4,6 +4,7 @@
 // AND the new dynamic engagement score (0–100), burnout detection, relapse detection.
 
 const taskQueries = require('../../database/queries/taskQueries');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -50,6 +51,15 @@ function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+// The trailing WINDOW_DAYS window in the USER's local days. getWeeklyTasks
+// filters on assigned_date, which is stored per-user local, so a window built
+// from the server's clock shifted by one day for every non-UTC user — dropping
+// their most recent day and counting one day too far back.
+function localWindow(user, days = WINDOW_DAYS) {
+  const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+  return { windowStartStr: timezoneUtils.addDaysToDateString(today, -days), today };
+}
+
 // ─── Core Analyzer ────────────────────────────────────────────────────────────
 
 const engagementAnalyzer = {
@@ -68,10 +78,7 @@ const engagementAnalyzer = {
    */
   async calculateEngagementScore(user) {
     try {
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - WINDOW_DAYS);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
+      const { windowStartStr, today } = localWindow(user);
 
       const tasks = await taskQueries.getWeeklyTasks(user.id, windowStartStr, today);
       const m = this._computeMetrics(tasks, user);
@@ -164,10 +171,7 @@ if (m.completionRate >= 0.8 && score < 70) {
    */
   async detectBurnoutRisk(user) {
     try {
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - WINDOW_DAYS);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
+      const { windowStartStr, today } = localWindow(user);
 
       const tasks = await taskQueries.getWeeklyTasks(user.id, windowStartStr, today);
 
@@ -243,10 +247,7 @@ if (m.completionRate >= 0.8 && score < 70) {
    */
   async detectRelapseRisk(user) {
     try {
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - WINDOW_DAYS);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
+      const { windowStartStr, today } = localWindow(user);
 
       const tasks = await taskQueries.getWeeklyTasks(user.id, windowStartStr, today);
       const m = this._computeMetrics(tasks, user);
@@ -299,10 +300,7 @@ if (m.completionRate >= 0.8 && score < 70) {
    */
   async analyze(user) {
     try {
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - WINDOW_DAYS);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
+      const { windowStartStr, today } = localWindow(user);
 
       const recentTasks = await taskQueries.getWeeklyTasks(user.id, windowStartStr, today);
       const metrics = this._computeMetrics(recentTasks, user);

@@ -1,6 +1,27 @@
 // src/database/queries/taskQueries.js
+//
+// Calendar dates in this file are the USER'S local day, never the server's.
+// assigned_date / due_date are DATE columns holding a user-local day, so any
+// function that touches them takes the date from its caller. There used to be
+// `date = null` defaults that fell back to `new Date().toISOString()` — raw UTC
+// — which meant a write from a caller with the right timezone could be read
+// back by a query using the server's day and come up empty.
 const { supabase } = require('../../config/supabase');
 const logger = require('../../utils/logger');
+
+// A missing date is a bug in the caller, not something to paper over with the
+// server's own day. Throwing surfaces it at the call site instead of returning
+// a plausible-looking wrong answer.
+function requireDate(date, fnName) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(
+      `${fnName}: a user-local YYYY-MM-DD date is required (got ${JSON.stringify(date)}). ` +
+      'Use timezoneUtils.getLocalDateString(user.timezone).'
+    );
+  }
+  return date;
+}
+
 const taskQueries = {
   async createTasks(userId, tasks) {
     const tasksToInsert = tasks.map(task => ({
@@ -14,8 +35,8 @@ const taskQueries = {
       why_it_matters: task.why_it_matters,
       estimated_time: task.estimated_time,
       status: task.status || 'pending',
-      assigned_date: task.assigned_date || new Date().toISOString().split('T')[0],
-      due_date: task.due_date || new Date().toISOString().split('T')[0],
+      assigned_date: requireDate(task.assigned_date, 'createTasks(assigned_date)'),
+      due_date: requireDate(task.due_date || task.assigned_date, 'createTasks(due_date)'),
       difficulty_level: task.difficulty_level || 'medium',
       is_daily: task.is_daily !== undefined ? task.is_daily : true,
       is_socratic: task.is_socratic || false,
@@ -31,8 +52,8 @@ const taskQueries = {
     return data;
   },
 
-  async getDailyTasks(userId, date = null) {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+  async getDailyTasks(userId, date) {
+    const targetDate = requireDate(date, 'getDailyTasks');
 
     const { data, error } = await supabase
       .from('tasks')
@@ -50,8 +71,8 @@ const taskQueries = {
   // Skipped-but-still-active tasks for a given day. Skipping only sets
   // status='skipped' (is_active stays true), so these are fully preserved
   // and can be restored to 'pending'. Used by the /skipped command.
-  async getSkippedTasks(userId, date = null) {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+  async getSkippedTasks(userId, date) {
+    const targetDate = requireDate(date, 'getSkippedTasks');
 
     const { data, error } = await supabase
       .from('tasks')
@@ -150,23 +171,6 @@ const taskQueries = {
 
     return false;
   }
-},
-
-async deactivateActiveTasks(userId, date = null) {
-  const targetDate = date || new Date().toISOString().split('T')[0];
-
-  const { error } = await supabase
-    .from('tasks')
-    .update({
-      is_active: false
-    })
-    .eq('user_id', userId)
-    .eq('assigned_date', targetDate)
-    .eq('is_active', true);
-
-  if (error) throw error;
-
-  return true;
 },
 
   async deleteAllTasks(userId) {
@@ -351,7 +355,13 @@ async deactivateActiveTasks(userId, date = null) {
     return true;
   },
   
-  async getLastCompletionDate(userId) {
+  // The calendar day, IN THE USER'S TIMEZONE, of their most recent completion.
+  // completed_at is an absolute instant, so slicing its ISO string yields the
+  // UTC day — which both callers then diff against a user-local "today",
+  // producing an off-by-one day gap near either end of the day. Converting the
+  // instant into the user's zone makes both sides of that subtraction the same
+  // kind of thing.
+  async getLastCompletionDate(userId, timezone = 'UTC') {
     const { data } = await supabase
       .from('tasks')
       .select('completed_at')
@@ -360,7 +370,9 @@ async deactivateActiveTasks(userId, date = null) {
       .order('completed_at', { ascending: false })
       .limit(1)
       .single();
-    return data?.completed_at?.split('T')[0] || null;
+    if (!data?.completed_at) return null;
+    const timezoneUtils = require('../../utils/timezoneUtils');
+    return timezoneUtils.getLocalDateString(timezone, new Date(data.completed_at));
   },
 
   // Check if user completed at least one task on a specific date
@@ -475,5 +487,10 @@ async deactivateActiveTasks(userId, date = null) {
 },
 };
     
+
+// requireDate is attached to the exported object so the BUG-001 date guard can
+// be unit-tested directly (scripts/test-date-handling.js). It is a pure helper;
+// exposing it changes no query behaviour.
+taskQueries.requireDate = requireDate;
 
 module.exports = taskQueries;

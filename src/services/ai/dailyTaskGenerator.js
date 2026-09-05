@@ -5,6 +5,7 @@ const taskQueries = require('../../database/queries/taskQueries');
 const memoryService = require('../memory/memoryService');
 const taskAdapter = require('./taskAdapter');
 const roadmapUtils = require('../../utils/roadmapUtils');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 
@@ -19,9 +20,17 @@ function normalizeTopic(text) {
 
 
 class DailyTaskGenerator {
-  async generateTasksForUser(telegramId) {
-    const today = new Date().toISOString().split('T')[0];
-    return this.generateTasksForDate(telegramId, today);
+  // The user's own calendar day — NOT the server's. Deriving this as raw UTC
+  // wrote tomorrow's assigned_date for anyone whose local day was already
+  // behind UTC, so getDailyTasks(user.id, userToday) came back empty and
+  // dailyCron re-fired generation every minute for the rest of the day.
+  async generateTasksForUser(telegramId, date = null) {
+    let targetDate = date;
+    if (!targetDate) {
+      const user = await userQueries.getUserByTelegramId(telegramId);
+      targetDate = timezoneUtils.getLocalDateString(user?.timezone || 'UTC');
+    }
+    return this.generateTasksForDate(telegramId, targetDate);
   }
 
   async generateTasksForDate(telegramId, date) {
@@ -157,7 +166,7 @@ const isBlocked = blockedLower.some(blocked =>
       // where it could never run against an empty array.)
       if (validatedTasks.length === 0) {
         logger.warn('[DailyTaskGenerator] All tasks filtered out. Using fallback tasks.');
-        const fallback = await this.getFallbackTasks(user);
+        const fallback = await this.getFallbackTasks(user, date);
         validatedTasks = fallback.slice(0, behaviorProfile.maxTasks);
       }
 
@@ -181,7 +190,7 @@ return savedTasks;
     } catch (error) {
       logger.error(`Task generation failed for user ${telegramId} on ${date}:`, error);
       const user = await userQueries.getUserByTelegramId(telegramId);
-      return this.getFallbackTasks(user);
+      return this.getFallbackTasks(user, date);
     }
   }
 
@@ -200,11 +209,16 @@ return savedTasks;
     }));
   }
 
-  async getFallbackTasks(user) {
+  // `date` is the user's local calendar day. It is required in practice: the
+  // rows below are stamped with it, and taskQueries no longer invents a raw-UTC
+  // date of its own when one is missing.
+  async getFallbackTasks(user, date = null) {
     if (!user) {
       logger.error('getFallbackTasks called with no user');
       return [];
     }
+
+    const targetDate = date || timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
     const fallbackTasks = [
       {
@@ -231,7 +245,10 @@ return savedTasks;
     ];
 
     try {
-      const savedTasks = await taskQueries.createTasks(user.id, fallbackTasks);
+      const savedTasks = await taskQueries.createTasks(
+        user.id,
+        fallbackTasks.map(t => ({ ...t, assigned_date: targetDate, due_date: targetDate }))
+      );
       logger.info(`Saved ${savedTasks.length} fallback tasks for user ${user.telegram_id}`);
       return savedTasks;
     } catch (error) {
@@ -242,10 +259,7 @@ return savedTasks;
       // on every tap). The DB may already have today's rows (unique
       // constraint violation) — reuse them; otherwise return nothing and
       // let the caller's no-tasks path handle it.
-      const existing = await taskQueries.getDailyTasks(
-        user.id,
-        new Date().toISOString().split('T')[0]
-      );
+      const existing = await taskQueries.getDailyTasks(user.id, targetDate);
       return existing || [];
     }
   }

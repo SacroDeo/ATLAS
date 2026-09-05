@@ -6,10 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "db:setup": "node src/database/schema/setup.js"
+    "db:setup": "node src/database/migrate.js",
+    "test": "node scripts/run-tests.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.3.1",
     "@supabase/supabase-js": "^2.39.0",
     "cookie-parser": "^1.4.7",
     "date-fns": "^3.0.6",
@@ -20,6 +20,7 @@
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
     "node-telegram-bot-api": "1.2.0",
+    "pg": "8.23.0",
     "uuid": "^11.1.1",
     "winston": "^3.11.0"
   },

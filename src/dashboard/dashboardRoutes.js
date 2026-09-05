@@ -31,6 +31,31 @@ const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, name: 'api' });
 router.use('/auth', authLimiter);
 router.use(apiLimiter);
 
+// CSRF defense-in-depth for state-changing auth POSTs. The session and pending
+// cookies are SameSite=Lax, so the browser already withholds them from cross-
+// site POSTs — but a forced-logout POST clears the cookie WITHOUT reading it, so
+// SameSite alone doesn't stop it, and a future switch to SameSite=None would drop
+// the protection entirely. Reject any POST whose Origin/Referer host isn't our
+// own. The dashboard's own logout/link fetches are same-origin (Origin === Host)
+// and pass; a cross-site page's forged POST does not (BUG-019). Fails safe: a
+// rejected logout just leaves the user signed in — it never exposes data.
+function sameOriginOnly(req, res, next) {
+  const host = req.get('host');
+  const source = req.get('origin') || req.get('referer');
+  // Browsers always send Origin (fetch/XHR) or at least Referer (form POST) on a
+  // cross-site request. Absent both, it isn't a browser CSRF vector — don't
+  // hard-fail non-browser clients (health checks, curl).
+  if (source && host) {
+    let sourceHost = null;
+    try { sourceHost = new URL(source).host; } catch { /* unparseable → treat as mismatch */ }
+    if (sourceHost !== host) {
+      logger.warn(`CSRF: cross-origin ${req.method} ${req.originalUrl} from "${source}" (host "${host}") — rejected.`);
+      return res.status(403).json({ error: 'Cross-origin request rejected' });
+    }
+  }
+  next();
+}
+
 // --- Auth ------------------------------------------------------------------
 
 // Telegram Login Widget can deliver the payload two ways depending on config:
@@ -72,7 +97,7 @@ async function handleLogin(req, res) {
 router.get('/auth/telegram', handleLogin);
 router.post('/auth/telegram', handleLogin);
 
-router.post('/auth/logout', (req, res) => {
+router.post('/auth/logout', sameOriginOnly, (req, res) => {
   clearSessionCookie(res);
   res.json({ ok: true });
 });
@@ -131,7 +156,7 @@ router.get('/auth/pending', async (req, res) => {
 
 // Complete the link: consume the code from /linkweb, attach telegram_id to
 // the Google identity, and start a normal session.
-router.post('/auth/link', async (req, res) => {
+router.post('/auth/link', sameOriginOnly, async (req, res) => {
   try {
     const identity = await googleAuth.getPendingIdentity(req);
     if (!identity) {

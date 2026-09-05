@@ -57,3 +57,9 @@ DEPLOYMENT_READY.md
 TESTING_GUIDE.md
 ADDITIONAL_IMPROVEMENTS.md
 RETENTION_FEATURES.md
+ATLAS_AUDIT.md
+BUGS_TO_FIX.md
+HANDOFF_beta_group.md
+
+# Scraped research output (Firecrawl) — local working data, not project code
+.firecrawl/

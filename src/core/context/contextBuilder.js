@@ -3,6 +3,7 @@ const userQueries = require('../../database/queries/userQueries');
 const taskQueries = require('../../database/queries/taskQueries');
 const conversationEngine = require('../../services/ai/conversationEngine');
 const memoryService = require('../../services/memory/memoryService');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 class ContextBuilder {
@@ -15,7 +16,10 @@ class ContextBuilder {
         return null;
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      // The user's own calendar day. This value is BOTH the getDailyTasks key
+      // and metadata.today in the AI prompt, so a server-UTC date made the
+      // model state the wrong date while looking at the wrong day's tasks.
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
       const [tasks, rawHistory, memory] = await Promise.allSettled([
         taskQueries.getDailyTasks(user.id, today),

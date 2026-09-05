@@ -1,6 +1,7 @@
 const aiOrchestrator = require('./aiOrchestrator');
 const socraticQueries = require('../../database/queries/socraticQueries');
 const taskQueries = require('../../database/queries/taskQueries');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 class SocraticEvaluator {
@@ -78,7 +79,11 @@ Reply ONLY with: true or false`
   ];
 
   try {
-    const result = await aiOrchestrator.execute(messages, { temperature: 0, maxTokens: 5 });
+    // Not 5: reasoning models spend the whole budget on hidden reasoning and
+    // return empty content, and providers without a token floor do the same on
+    // failover — then `.startsWith('true')` is always false and disengagement
+    // is never detected. We only read the first word, so 256 is ample headroom.
+    const result = await aiOrchestrator.execute(messages, { temperature: 0, maxTokens: 256 });
     return result.trim().toLowerCase().startsWith('true');
   } catch {
     return false; // fail open — don't block the flow
@@ -185,13 +190,17 @@ Respond ONLY with JSON:
     }
   }
 
-  async shouldAskSocratic(userId) {
+  // timezone comes from the caller: the 7-day window below is compared against
+  // assigned_date, which is stored as the user's own local day, so a
+  // server-derived window silently dropped their newest day.
+  async shouldAskSocratic(userId, timezone = 'UTC') {
     // Ask Socratic question for every 3rd completed task
     const recentLogs = await socraticQueries.getRecentLogs(userId, 5);
+    const today = timezoneUtils.getLocalDateString(timezone);
     const completedTasks = await taskQueries.getWeeklyTasks(
       userId,
-      new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0],
-      new Date().toISOString().split('T')[0]
+      timezoneUtils.addDaysToDateString(today, -7),
+      today
     );
 
     const completedCount = completedTasks.filter(t => t.status === 'completed').length;

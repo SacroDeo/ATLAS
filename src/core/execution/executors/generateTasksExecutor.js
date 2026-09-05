@@ -27,8 +27,7 @@ class GenerateTasksExecutor {
     try {
       const stateManager = require('../../state/stateManager');
       const inlineKeyboards = require('../../../bot/keyboards/inlineKeyboards');
-      const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
-      const today = userNow.toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
       // A plain "generate/regenerate" REPLACES today's list; a topic-specific
       // request ("tasks on X") APPENDS on top. Either way we never touch the

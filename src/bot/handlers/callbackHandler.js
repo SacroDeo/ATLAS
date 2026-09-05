@@ -40,7 +40,7 @@ class CallbackHandler {
           this.processedCallbacks.delete(key);
         }
       }
-    }, 60000);
+    }, 60000).unref();
   }
 
   // FIX: Cleanup method for process reloads
@@ -356,7 +356,7 @@ async handleDone(callbackQuery, taskId) {
   }
 
   const result =
-    await taskService.handleTaskComplete(user.id, taskId);
+    await taskService.handleTaskComplete(user.id, taskId, user.timezone || 'UTC');
 
   if (result.alreadyCompleted) {
     return;
@@ -465,7 +465,7 @@ async handleDone(callbackQuery, taskId) {
 
       if (!question) return; // profile complete — don't burn the daily slot
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
       // FIX 7: Atomic DB guard — only one callback can acquire per day
       const acquired = await userQueries.trySetProgressiveQuestionDate(
@@ -803,7 +803,7 @@ async handleSkipSocratic(
 
 
   async showProgress(chatId, messageId, user) {
-    const progress = await taskService.getTodayProgress(user.id);
+    const progress = await taskService.getTodayProgress(user.id, user.timezone || 'UTC');
     
     const progressBar = this.generateProgressBar(progress.percentage);
     
@@ -945,6 +945,7 @@ async handleStuckResponse(
   await checkinQueries.createCheckin(
     user.id,
     {
+      date: timezoneUtils.getLocalDateString(user.timezone || 'UTC'),
       type: 'stuck',
       response: reason,
     }
@@ -991,7 +992,7 @@ async handleStuckResponse(
     // (e.g. a time constraint) the user attached to the original ask.
     const pending = stateManager.getContext(user.telegram_id);
     const userTz = user.timezone || 'UTC';
-    const today = timezoneUtils.getCurrentTimeInZone(userTz).toISOString().split('T')[0];
+    const today = timezoneUtils.getLocalDateString(userTz);
 
     if (data !== 'pending:skipall') {
       // pending:keep — user finishes the old tasks first. They're dated in the
@@ -1075,7 +1076,7 @@ async handleStuckResponse(
     }
 
     const userTz = user.timezone || 'UTC';
-    const today = timezoneUtils.getCurrentTimeInZone(userTz).toISOString().split('T')[0];
+    const today = timezoneUtils.getLocalDateString(userTz);
 
     if (data === 'pending:addskip') {
       await taskQueries.clearPendingForRegeneration(user.id, today);
@@ -1112,7 +1113,7 @@ async handleStuckResponse(
   async handleMorningPrefAi(chatId, messageId, user, telegramId) {
     try {
       const { supabase } = require('../../config/supabase');
-      const today = new Date().toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(user?.timezone || 'UTC');
 
       await supabase
         .from('users')
@@ -1144,7 +1145,7 @@ async handleStuckResponse(
   async handleMorningPrefManual(chatId, messageId, user, telegramId) {
     try {
       const { supabase } = require('../../config/supabase');
-      const today = new Date().toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(user?.timezone || 'UTC');
 
       await supabase
         .from('users')

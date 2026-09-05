@@ -1,11 +1,12 @@
 // src/core/execution/executors/showProgressExecutor.js
 const taskQueries = require('../../../database/queries/taskQueries');
+const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
 
 async function execute(plan, context) {
   try {
     const { user } = context;
-    const today = new Date().toISOString().split('T')[0];
+    const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
 
     const tasks = await taskQueries.getDailyTasks(user.id, today);
 

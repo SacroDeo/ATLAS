@@ -22,34 +22,49 @@ const feedbackQueries = {
 
   // Beta health numbers for /betastats — all from tables that already exist.
   // Excludes admin + founding-tier users (test accounts, not real beta testers).
+  //
+  // `last_active` is a DATE column holding each user's OWN local day, so there
+  // is no single server-side "today" to compare it against — at any instant
+  // users' local dates span up to three adjacent calendar days. Comparing
+  // against a UTC-derived date silently mis-bucketed everyone whose day differs
+  // from the server's. Counting in JS against each user's own timezone is what
+  // the "Active today" label actually claims.
   async betaStats() {
     const config = require('../../config');
+    const timezoneUtils = require('../../utils/timezoneUtils');
     const adminId = config.telegram.adminId || process.env.ADMIN_TELEGRAM_ID;
-    const today = new Date().toISOString().split('T')[0];
-    const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().split('T')[0];
 
-    const [total, onboarded, activeToday, activeWeek, realUsers] = await Promise.all([
+    const [total, onboarded, realUsers, activity] = await Promise.all([
       supabase.from('users').select('*', { count: 'exact', head: true }),
       supabase.from('users').select('*', { count: 'exact', head: true })
         .eq('onboarding_completed', true),
-      supabase.from('users').select('*', { count: 'exact', head: true })
-        .eq('last_active', today),
-      supabase.from('users').select('*', { count: 'exact', head: true })
-        .gte('last_active', weekAgo),
       // Real beta testers = onboarded, not admin, not founding tier
       supabase.from('users').select('*', { count: 'exact', head: true })
         .eq('onboarding_completed', true)
         .neq('tier', 'founding')
         .neq('telegram_id', adminId || 0),
+      // Two small columns for every user — cheap at beta scale and the only
+      // way to resolve "today" per user.
+      supabase.from('users').select('last_active, timezone'),
     ]);
-    for (const r of [total, onboarded, activeToday, activeWeek, realUsers]) {
+    for (const r of [total, onboarded, realUsers, activity]) {
       if (r.error) throw r.error;
     }
+
+    let activeToday = 0;
+    let activeWeek = 0;
+    for (const u of activity.data || []) {
+      if (!u.last_active) continue;
+      const userToday = timezoneUtils.getLocalDateString(u.timezone || 'UTC');
+      if (u.last_active === userToday) activeToday++;
+      if (u.last_active >= timezoneUtils.addDaysToDateString(userToday, -7)) activeWeek++;
+    }
+
     return {
       total: total.count || 0,
       onboarded: onboarded.count || 0,
-      activeToday: activeToday.count || 0,
-      activeWeek: activeWeek.count || 0,
+      activeToday,
+      activeWeek,
       realUsers: realUsers.count || 0,
     };
   },
@@ -83,8 +98,16 @@ const feedbackQueries = {
   // feedback). Excludes admin + founding tier, same as betaStats().
   async betaRoster(days = 21) {
     const config = require('../../config');
+    const timezoneUtils = require('../../utils/timezoneUtils');
     const adminId = config.telegram.adminId || process.env.ADMIN_TELEGRAM_ID;
-    const sinceDate = new Date(Date.now() - days * 864e5).toISOString().split('T')[0];
+    // assigned_date is per-user local, so a lower bound derived from any single
+    // clock can be off by a day either way. This is a rolling N-day window for
+    // a founder's dashboard, not a dedup key, so pad by one day rather than
+    // fan out per user: it can never truncate a user's rows.
+    const sinceDate = timezoneUtils.addDaysToDateString(
+      timezoneUtils.getLocalDateString('UTC'),
+      -(days + 1)
+    );
     const sinceTs = new Date(Date.now() - days * 864e5).toISOString();
 
     // Real users only. Keep normal (non-beta) users in — they're tagged in the

@@ -279,7 +279,7 @@ class DailyCron {
           return { success: true, tasksSent: 0, error: null };
         }
         logger.info(`[processUser] User ${user.telegram_id} is AI mode, generating tasks`);
-        tasks = await dailyTaskGenerator.generateTasksForUser(user.telegram_id);
+        tasks = await dailyTaskGenerator.generateTasksForUser(user.telegram_id, gateToday);
         logger.info(`[processUser] Generated ${tasks ? tasks.length : 0} tasks`);
 
         if (!tasks || tasks.length === 0) {
@@ -307,7 +307,7 @@ logger.info(`[processUser] Tasks sent successfully`);
         : 7;
 
       if (daysSinceLastMemory >= 7) {
-        await memoryService.updateMemory(user.id);
+        await memoryService.updateMemory(user.id, user.timezone || 'UTC');
       }
 
       logger.info(`[processUser] Daily tasks sent to user ${user.telegram_id}`);
@@ -361,7 +361,10 @@ logger.info(`[processUser] Tasks sent successfully`);
   }
 
   async handleNoCompletion(user) {
-    const consecutiveMisses = await checkinQueries.getConsecutiveMisses(user.id);
+    const consecutiveMisses = await checkinQueries.getConsecutiveMisses(
+      user.id,
+      user.timezone || 'UTC'
+    );
 
     if (consecutiveMisses >= 3) {
       try {
@@ -577,19 +580,28 @@ logger.info(`[processUser] Tasks sent successfully`);
     }
   }
 
+  // Social proof for the daily message. This is the one genuinely cross-user
+  // aggregate in the codebase, so there is no single user-local "today" to key
+  // it on — a server-UTC date would be some other user's yesterday. Use the
+  // rolling 24h window on completed_at (a timestamptz, i.e. an absolute
+  // instant) instead, which is also what the copy claims: "right now".
+  //
+  // It also counts DISTINCT users now. The old query counted task rows, so
+  // one user finishing five tasks was announced as "5 people".
   async getActiveUsersToday() {
     try {
       const { supabase } = require('../config/supabase');
-      const today = new Date().toISOString().split('T')[0];
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-      // Count users who have completed at least one task today
-      const { count } = await supabase
+      const { data, error } = await supabase
         .from('tasks')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('assigned_date', today)
-        .eq('status', 'completed');
+        .select('user_id')
+        .eq('status', 'completed')
+        .gte('completed_at', since)
+        .limit(5000);
 
-      return count || 0;
+      if (error) throw error;
+      return new Set((data || []).map(r => r.user_id)).size;
     } catch (error) {
       logger.error('Failed to get active user count:', error);
       return 0;

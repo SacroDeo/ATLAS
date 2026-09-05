@@ -1,6 +1,7 @@
 const taskQueries = require('../../../database/queries/taskQueries');
 const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
+const { orderForNumbering } = require('../taskOrdering');
 
 async function execute(plan, context) {
   try {
@@ -11,23 +12,24 @@ async function execute(plan, context) {
       return { success: false, message: '❌ Please specify which task number and the new title.' };
     }
 
-    const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
-const today = userNow.toISOString().split('T')[0];    const tasks = await taskQueries.getDailyTasks(user.id, today);
-    // ...rest unchanged
+    const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+    const tasks = await taskQueries.getDailyTasks(user.id, today);
 
     if (!tasks || tasks.length === 0) {
       return { success: false, message: '📋 No tasks found for today.' };
     }
 
+    // Resolve against the SAME order the user saw (taskOrdering) — see BUG-004.
+    const ordered = orderForNumbering(tasks);
     const index = task_number - 1;
-    if (index < 0 || index >= tasks.length) {
+    if (index < 0 || index >= ordered.length) {
       return {
         success: false,
-        message: `❌ Task ${task_number} doesn't exist. You have ${tasks.length} task${tasks.length !== 1 ? 's' : ''} today.`
+        message: `❌ Task ${task_number} doesn't exist. You have ${ordered.length} task${ordered.length !== 1 ? 's' : ''} today.`
       };
     }
 
-    const target = tasks[index];
+    const target = ordered[index];
     await taskQueries.updateTask(target.id, {
       title: new_title.slice(0, 120),
       // Full text goes in the description; title gets the truncated form.

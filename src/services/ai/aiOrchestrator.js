@@ -35,6 +35,39 @@ class AIOrchestrator {
     });
   }
 
+  // ─── Escape-sequence normalisation at the AI boundary ─────────────────────
+
+  /**
+   * Turn literal backslash-n / backslash-t sequences into real whitespace.
+   *
+   * Models routinely emit "line one\nline two" as separate backslash and n
+   * characters rather than a real newline — a habit picked up from being trained
+   * on JSON — and they double-escape it inside JSON strings, so JSON.parse hands
+   * back a literal backslash-n too. That needs repairing, but it used to be
+   * repaired inside sanitizeTelegramText, i.e. on EVERY outgoing message, which
+   * silently rewrote backslash-n in text the USER typed: ask ATLAS about "\n" in
+   * Python and the answer came back with a line break instead (BUG-010). Doing it
+   * here confines the repair to AI-authored text, which is the only text that
+   * ever needed it. Every AI call in src/ funnels through execute/executeJSON,
+   * so this is the complete boundary.
+   */
+  _unescapeWhitespace(text) {
+    if (typeof text !== 'string') return text;
+    return text.replace(/\\n/g, '\n').replace(/\\t/g, '  ');
+  }
+
+  /** _unescapeWhitespace applied to every string inside a parsed JSON value. */
+  _unescapeDeep(value) {
+    if (typeof value === 'string') return this._unescapeWhitespace(value);
+    if (Array.isArray(value)) return value.map(v => this._unescapeDeep(v));
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = this._unescapeDeep(v);
+      return out;
+    }
+    return value;
+  }
+
   // ─── Centralized JSON reliability pipeline ─────────────────────────────────
 
   /**
@@ -153,10 +186,10 @@ class AIOrchestrator {
               if (parsed && typeof parsed === 'object') {
                 if (schemaValidator) {
                   const validation = schemaValidator(parsed);
-                  if (validation.valid) return parsed;
+                  if (validation.valid) return this._unescapeDeep(parsed);
                   logger.warn(`[executeJSON] Schema validation failed: ${validation.error}`);
                 } else {
-                  return parsed;
+                  return this._unescapeDeep(parsed);
                 }
               }
             } catch (providerError) {
@@ -223,7 +256,7 @@ class AIOrchestrator {
           }
 
           logger.info(`[executeJSON] Success with ${providerName}`);
-          return parsed;
+          return this._unescapeDeep(parsed);
 
         } catch (error) {
           logger.warn(`[executeJSON] Provider ${providerName} attempt ${attempt + 1} failed: ${error.message}`);
@@ -257,22 +290,31 @@ class AIOrchestrator {
 
     const errors = [];
 
+    // Cap work per provider: one retry, and ONLY on a rate-limit (with backoff).
+    // A non-429 error fails over to the next provider immediately — retrying it
+    // in place just burns latency. Worst case is now RETRIES_PER_PROVIDER × the
+    // provider count instead of the old 3-attempts-each cascade, and the dead
+    // `maxRetries = this._isRateLimitErrorCapable ? 2 : 2` line (both branches 2,
+    // the flag undefined, the value never read) is gone (BUG-012). On the free
+    // tier a 429 usually means the per-window quota is spent, so a second attempt
+    // at the SAME provider rarely clears — failover is cheaper and faster.
+    const RETRIES_PER_PROVIDER = 1; // 2 attempts total per provider
+
     for (const providerName of providersToTry) {
       const provider = this.providers[providerName];
-      const maxRetries = this._isRateLimitErrorCapable ? 2 : 2;
 
-      for (let retry = 0; retry <= 2; retry++) {
+      for (let retry = 0; retry <= RETRIES_PER_PROVIDER; retry++) {
         try {
           logger.info(`Trying AI provider: ${providerName} (attempt ${retry + 1})`);
           const result = await provider.generateCompletion(messages, options);
           logger.info(`AI request succeeded with ${providerName}`);
-          return result;
+          return this._unescapeWhitespace(result);
         } catch (error) {
           const isRateLimit = this._isRateLimitError(error);
           logger.warn(`Provider ${providerName} attempt ${retry + 1} failed: ${error.message}`);
 
-          if (isRateLimit && retry < 2) {
-            const backoffMs = 500 * Math.pow(2, retry); // 500ms, 1000ms
+          if (isRateLimit && retry < RETRIES_PER_PROVIDER) {
+            const backoffMs = 500 * Math.pow(2, retry); // 500ms
             logger.info(`Rate limited on ${providerName}, backing off ${backoffMs}ms`);
             await this._sleep(backoffMs);
             continue;

@@ -49,16 +49,16 @@ class Day2RecoveryCron {
     if (!user.onboarding_completed) return;
 
     const userTz = user.timezone || 'UTC';
-    const now = timezoneUtils.getCurrentTimeInZone(userTz);
-    const currentHour = now.getHours();
+    // getCurrentTimeInZone is right for the hour-of-day window below, but its
+    // result is a Date shifted by the target offset — calling .toISOString()
+    // on it re-applies the SERVER's offset and double-shifts the calendar day.
+    const currentHour = timezoneUtils.getCurrentTimeInZone(userTz).getHours();
 
     // Only send in afternoon hours (14:00 - 18:00 local time)
     if (currentHour < 14 || currentHour >= 18) return;
 
-    const today = now.toISOString().split('T')[0];
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const today = timezoneUtils.getLocalDateString(userTz);
+    const yesterdayStr = timezoneUtils.addDaysToDateString(today, -1);
 
     // Check if user completed at least one task yesterday (day 1)
     const completedYesterday = await taskQueries.hasCompletedTasksOnDate(user.id, yesterdayStr);

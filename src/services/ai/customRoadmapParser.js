@@ -7,6 +7,7 @@
 const aiOrchestrator = require('./aiOrchestrator');
 const userQueries = require('../../database/queries/userQueries');
 const logger = require('../../utils/logger');
+const { sanitizeForPrompt } = require('../../utils/promptSanitizer');
 
 const customRoadmapParser = {
   /**
@@ -18,11 +19,11 @@ const customRoadmapParser = {
 
     const systemContent = `The user of a goal-assistant bot pasted THEIR OWN roadmap/plan. Convert it into the bot's internal structure. DO NOT invent a different plan — preserve their phases, ordering, topics and wording as faithfully as possible.
 
-USER GOAL: "${user.goal || 'not stated'}"
+USER GOAL: "${sanitizeForPrompt(user.goal || 'not stated', 500)}"
 
 THEIR ROADMAP (verbatim):
 """
-${pastedText.slice(0, 4000)}
+${sanitizeForPrompt(pastedText, 4000)}
 """
 
 Rules:

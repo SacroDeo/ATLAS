@@ -27,7 +27,8 @@ class RateLimiter {
     this.couponAttemptWindows = new Map();
 
     // Cleanup stale entries every 5 minutes
-    setInterval(() => this._cleanup(), 5 * 60 * 1000);
+    // .unref() so this housekeeping timer never keeps the process alive on shutdown.
+    setInterval(() => this._cleanup(), 5 * 60 * 1000).unref();
   }
 
   /**

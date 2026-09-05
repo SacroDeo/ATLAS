@@ -24,7 +24,8 @@ class OnboardingFlow {
       COMPLETED:        'completed',
     };
 
-    this.cleanupInterval = setInterval(() => this._cleanupStaleStates(), 30 * 60 * 1000);
+    // .unref() so this housekeeping timer never keeps the process alive on shutdown.
+    this.cleanupInterval = setInterval(() => this._cleanupStaleStates(), 30 * 60 * 1000).unref();
   }
 
   _cleanupStaleStates() {
@@ -38,6 +39,46 @@ class OnboardingFlow {
       }
     }
     if (cleaned > 0) logger.info(`Cleaned ${cleaned} stale onboarding states`);
+  }
+
+  /**
+   * BUG-002: onboarding state lives only in the process-local `userStates` Map,
+   * so any Render deploy mid-onboarding wipes it. The callback branches below
+   * used to guard their body with `if (userState)` and no else — after a restart
+   * the tap cleared its spinner and did nothing. This rebuilds the in-memory
+   * state from the user's persisted DB row when the Map has lost it, so a restart
+   * is invisible to someone partway through onboarding.
+   *
+   * @param {number} telegramId
+   * @param {string} fallbackState - state to resume at when the DB has none yet
+   * @returns {Promise<object|null>} the state (existing or rebuilt), or null when
+   *   there is no user row at all — the caller should then tell them to /start.
+   */
+  async _ensureState(telegramId, fallbackState) {
+    const existing = this.userStates.get(telegramId);
+    if (existing) return existing;
+
+    logger.warn(`[Callback] userState missing for ${telegramId}, recovering from DB`);
+    const dbUser = await userQueries.getUserByTelegramId(telegramId);
+    if (!dbUser) return null;
+
+    const userState = {
+      state: dbUser.onboarding_state || fallbackState,
+      data: {
+        goal:             dbUser.goal             || null,
+        domain_knowledge: dbUser.domain_knowledge || null,
+        available_time:   dbUser.available_time   || null,
+        biggest_struggle: dbUser.biggest_struggle || null,
+        preferred_time:   dbUser.preferred_time   || null,
+        timezone:         dbUser.timezone         || null,
+        start_preference: dbUser.start_preference || null,
+        task_mode:        dbUser.task_mode        || null,
+      },
+      updatedAt: Date.now(),
+    };
+    this.userStates.set(telegramId, userState);
+    logger.info(`[Callback] userState recovered for ${telegramId} at state=${userState.state}`);
+    return userState;
   }
 
   async handleOnboarding(msg) {
@@ -79,6 +120,15 @@ class OnboardingFlow {
       if (user.onboarding_completed) {
         await telegramClient.sendMessage(this.bot, chatId,
           "You're all set! Use /start to view your tasks or /help for commands."
+        );
+        return;
+      }
+
+      // Mid-onboarding /help used to be swallowed as the current step's answer
+      // (e.g. saved as the user's goal). Answer it as a command instead (BUG-031).
+      if (text === '/help') {
+        await telegramClient.sendMessage(this.bot, chatId,
+          "You're setting up ATLAS right now 🚀\n\nJust answer the question above to keep going, or:\n• /start — restart setup\n• /reset — clear everything and start fresh"
         );
         return;
       }
@@ -941,28 +991,6 @@ Be concise. Be real.`
     await this._askFinalTaskMode(chatId);
   }
 
-  async _sendCommitmentScreen(chatId, telegramId) {
-    await telegramClient.sendMessage(
-      this.bot,
-      chatId,
-      "⚠️ *Real talk:*\n\n" +
-      "Most people sign up, like the idea, then ghost after day 1.\n\n" +
-      "ATLAS won't do the work for you. It just tells you *what* to do and *keeps you honest*.\n\n" +
-      "If you're looking for motivation or someone to hold your hand — this isn't it.\n\n" +
-      "If you're ready to show up daily and do the work — you'll see results in 3 days.\n\n" +
-      "Still in?",
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "✅ Yes, I'll show up", callback_data: 'commitment_yes' }],
-            [{ text: '❌ Not ready yet', callback_data: 'commitment_no' }],
-          ],
-        },
-      }
-    );
-  }
-
   async _askFinalTaskMode(chatId) {
     await telegramClient.sendMessage(
       this.bot,
@@ -1061,142 +1089,125 @@ Be concise. Be real.`
 
       if (data.startsWith('tz_confirm_')) {
         const timezone  = data.replace('tz_confirm_', '');
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          userState.data.timezone = timezone;
-          userState.state         = this.states.START_DATE;
-          userState.updatedAt     = Date.now();
-          this.userStates.set(telegramId, userState);
-          await userQueries.updateOnboardingState(telegramId, this.states.TIMEZONE, { timezone });
-          await this._askStartDate(chatId);
+        // callback_data can be forged via the Bot API, so the suffix is untrusted;
+        // a bad (or empty) zone would otherwise throw later inside Intl on every
+        // date calculation — getLocalDateString, cron delivery, etc. (BUG-030).
+        if (!timezone || !timezoneUtils.isValidIANA(timezone)) {
+          await telegramClient.sendMessage(this.bot, chatId,
+            "Hmm, that timezone didn't look right. Let's try again.");
+          await this._askTimezone(chatId, telegramId, callbackQuery.from?.language_code);
+          return;
         }
+        const userState = await this._ensureState(telegramId, this.states.TIMEZONE);
+        if (!userState) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
+        }
+        userState.data.timezone = timezone;
+        userState.state         = this.states.START_DATE;
+        userState.updatedAt     = Date.now();
+        this.userStates.set(telegramId, userState);
+        // Persist the NEXT state (START_DATE) + the data just collected, matching
+        // the sibling time_ branch convention. Writing TIMEZONE here would bounce a
+        // restarted user back to timezone selection they already finished.
+        await userQueries.updateOnboardingState(telegramId, this.states.START_DATE, { timezone });
+        await this._askStartDate(chatId);
         return;
       }
 
       const timeButtons = ['time_06:00','time_07:00','time_08:00','time_09:00','time_12:00','time_18:00','time_20:00'];
       if (timeButtons.includes(data)) {
         const time      = data.replace('time_', '');
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          userState.data.preferred_time = time;
-          userState.state               = this.states.TIMEZONE;
-          userState.updatedAt           = Date.now();
-          this.userStates.set(telegramId, userState);
-          await userQueries.updateOnboardingState(telegramId, this.states.TIMEZONE, { preferred_time: time });
-          await this._askTimezone(chatId, telegramId, callbackQuery.from?.language_code);
+        const userState = await this._ensureState(telegramId, this.states.PREFERRED_TIME);
+        if (!userState) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
         }
+        userState.data.preferred_time = time;
+        userState.state               = this.states.TIMEZONE;
+        userState.updatedAt           = Date.now();
+        this.userStates.set(telegramId, userState);
+        await userQueries.updateOnboardingState(telegramId, this.states.TIMEZONE, { preferred_time: time });
+        await this._askTimezone(chatId, telegramId, callbackQuery.from?.language_code);
         return;
       }
 
       if (data === 'time_custom') {
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          userState.state     = 'awaiting_custom_time';
-          userState.updatedAt = Date.now();
-          this.userStates.set(telegramId, userState);
-          await telegramClient.sendMessage(this.bot, chatId, "What time? Type something like '7:30 AM' or '9 PM'.");
+        const userState = await this._ensureState(telegramId, this.states.PREFERRED_TIME);
+        if (!userState) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
         }
+        userState.state     = 'awaiting_custom_time';
+        userState.updatedAt = Date.now();
+        this.userStates.set(telegramId, userState);
+        // Persist the transient state so a restart before they type their time
+        // still resumes here (the text path rebuilds from onboarding_state).
+        await userQueries.updateOnboardingState(telegramId, 'awaiting_custom_time');
+        await telegramClient.sendMessage(this.bot, chatId, "What time? Type something like '7:30 AM' or '9 PM'.");
         return;
       }
 
       if (data === 'tz_manual') {
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          userState.state     = 'awaiting_manual_timezone';
-          userState.updatedAt = Date.now();
-          this.userStates.set(telegramId, userState);
-          await telegramClient.sendMessage(this.bot, chatId, "Type your city or timezone (e.g. 'New York', 'London', 'IST').");
+        const userState = await this._ensureState(telegramId, this.states.TIMEZONE);
+        if (!userState) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
         }
+        userState.state     = 'awaiting_manual_timezone';
+        userState.updatedAt = Date.now();
+        this.userStates.set(telegramId, userState);
+        await userQueries.updateOnboardingState(telegramId, 'awaiting_manual_timezone');
+        await telegramClient.sendMessage(this.bot, chatId, "Type your city or timezone (e.g. 'New York', 'London', 'IST').");
         return;
       }
 
       if (data === 'startdate_today' || data === 'startdate_tomorrow' || data === 'startdate_pick') {
-        const userState = this.userStates.get(telegramId);
-        if (userState) {
-          if (data === 'startdate_pick') {
-            userState.state     = 'awaiting_start_date';
-            userState.updatedAt = Date.now();
-            this.userStates.set(telegramId, userState);
-            await telegramClient.sendMessage(this.bot, chatId,
-              "What date should I start? (e.g. 'Monday', 'June 15', 'next week')"
-            );
-            return;
-          }
-
-          userState.data.start_preference = data === 'startdate_today' ? 'today' : 'tomorrow';
-          userState.state     = this.states.COMPLETED;
+        const userState = await this._ensureState(telegramId, this.states.START_DATE);
+        if (!userState) {
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
+        }
+        if (data === 'startdate_pick') {
+          userState.state     = 'awaiting_start_date';
           userState.updatedAt = Date.now();
           this.userStates.set(telegramId, userState);
-          await userQueries.updateOnboardingState(telegramId, this.states.START_DATE, {
-            start_preference: userState.data.start_preference,
-          });
-          await this._completeOnboarding(chatId, telegramId, userState.data);
+          await userQueries.updateOnboardingState(telegramId, 'awaiting_start_date');
+          await telegramClient.sendMessage(this.bot, chatId,
+            "What date should I start? (e.g. 'Monday', 'June 15', 'next week')"
+          );
+          return;
         }
+
+        userState.data.start_preference = data === 'startdate_today' ? 'today' : 'tomorrow';
+        userState.state     = this.states.COMPLETED;
+        userState.updatedAt = Date.now();
+        this.userStates.set(telegramId, userState);
+        await userQueries.updateOnboardingState(telegramId, this.states.START_DATE, {
+          start_preference: userState.data.start_preference,
+        });
+        await this._completeOnboarding(chatId, telegramId, userState.data);
         return;
       }
 
       if (data.startsWith('knowledge_')) {
         const level     = data.replace('knowledge_', '');
-        let userState   = this.userStates.get(telegramId);
-
+        const userState = await this._ensureState(telegramId, this.states.DOMAIN_KNOWLEDGE);
         if (!userState) {
-          logger.warn(`[Callback] knowledge_ — userState missing for ${telegramId}, recovering from DB`);
-          const dbUser = await userQueries.getUserByTelegramId(telegramId);
-          if (!dbUser) {
-            await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
-            return;
-          }
-          userState = {
-            state:     this.states.DOMAIN_KNOWLEDGE,
-            data: {
-              goal:             dbUser.goal             || null,
-              domain_knowledge: dbUser.domain_knowledge || null,
-              available_time:   dbUser.available_time   || null,
-              biggest_struggle: dbUser.biggest_struggle || null,
-              preferred_time:   dbUser.preferred_time   || null,
-              timezone:         dbUser.timezone         || null,
-              start_preference: dbUser.start_preference || null,
-              task_mode:        dbUser.task_mode        || null,
-            },
-            updatedAt: Date.now(),
-          };
-          this.userStates.set(telegramId, userState);
-          logger.info(`[Callback] knowledge_ — userState recovered for ${telegramId}`);
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
         }
-
         await this._saveDomainKnowledge(chatId, telegramId, level, userState);
         return;
       }
 
       if (data.startsWith('struggle_')) {
         const struggle  = data.replace('struggle_', '');
-        let userState   = this.userStates.get(telegramId);
-
+        const userState = await this._ensureState(telegramId, this.states.BIGGEST_STRUGGLE);
         if (!userState) {
-          logger.warn(`[Callback] struggle_ — userState missing for ${telegramId}, recovering from DB`);
-          const dbUser = await userQueries.getUserByTelegramId(telegramId);
-          if (!dbUser) {
-            await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
-            return;
-          }
-          userState = {
-            state:     this.states.BIGGEST_STRUGGLE,
-            data: {
-              goal:             dbUser.goal             || null,
-              domain_knowledge: dbUser.domain_knowledge || null,
-              available_time:   dbUser.available_time   || null,
-              biggest_struggle: dbUser.biggest_struggle || null,
-              preferred_time:   dbUser.preferred_time   || null,
-              timezone:         dbUser.timezone         || null,
-              start_preference: dbUser.start_preference || null,
-              task_mode:        dbUser.task_mode        || null,
-            },
-            updatedAt: Date.now(),
-          };
-          this.userStates.set(telegramId, userState);
-          logger.info(`[Callback] struggle_ — userState recovered for ${telegramId}`);
+          await telegramClient.sendMessage(this.bot, chatId, 'Session expired. Type /start to continue.');
+          return;
         }
-
         await this._saveBiggestStruggle(chatId, telegramId, struggle, userState);
         return;
       }

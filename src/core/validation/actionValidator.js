@@ -47,7 +47,7 @@ class ActionValidator {
     switch (plan.intent) {
 
       case ACTIONS.DELETE_TASK:
-        if (!plan.payload || !plan.payload.task_number) {
+        if (!plan.payload || plan.payload.task_number == null) {
           return { valid: false, error: 'DELETE_TASK requires task_number in payload' };
         }
         return { valid: true };
@@ -61,17 +61,30 @@ class ActionValidator {
       case ACTIONS.GENERATE_TASKS:
         return this.validateGenerateTasks(plan);
 
+      case ACTIONS.UPDATE_TASK:
+        if (!plan.payload || plan.payload.task_number == null || !plan.payload.new_title) {
+          return { valid: false, error: 'UPDATE_TASK requires task_number and new_title in payload' };
+        }
+        return { valid: true };
+
+      case ACTIONS.ADD_TASK:
+        if (!plan.payload || !plan.payload.description) {
+          return { valid: false, error: 'ADD_TASK requires a description in payload' };
+        }
+        return { valid: true };
+
+      // Read-only / no-required-payload intents.
       case ACTIONS.SHOW_TASKS:
-        return { valid: true };
-
+      case ACTIONS.SHOW_GOAL:
+      case ACTIONS.SHOW_PROGRESS:
       case ACTIONS.DISCUSS_GOAL:
-        return { valid: true };
-
       case ACTIONS.GENERAL_CHAT:
         return { valid: true };
 
       default:
-        return { valid: true };
+        // Fail closed: a valid-but-unhandled intent must never reach an executor
+        // with an unvalidated payload just because a case is missing here (BUG-015).
+        return { valid: false, error: `Unhandled intent: ${plan.intent}` };
     }
   }
 
@@ -81,6 +94,16 @@ class ActionValidator {
       return {
         valid: false,
         error: 'DELETE_TASKS requires payload'
+      };
+    }
+
+    // An all-null payload used to pass here and reach the executor as a silent
+    // no-op (BUG-015). Require either specific number(s) or a target ("all").
+    const { task_number, target } = plan.payload;
+    if (task_number == null && !target) {
+      return {
+        valid: false,
+        error: 'DELETE_TASKS requires task_number or target in payload'
       };
     }
 

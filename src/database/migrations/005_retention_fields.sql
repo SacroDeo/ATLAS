@@ -1,5 +1,6 @@
--- Add retention tracking fields to users table
--- Run this migration on your Supabase database
+-- Migration 005 — retention nudge bookkeeping on users
+-- (was migrations/add_retention_fields.sql; renumbered so migrations apply in
+-- one deterministic order from a single directory)
 
 -- Track whether user has received the day-2 recovery nudge
 ALTER TABLE users

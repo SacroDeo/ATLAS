@@ -1,6 +1,7 @@
 const aiOrchestrator = require('../ai/aiOrchestrator');
 const memoryQueries = require('../../database/queries/memoryQueries');
 const taskQueries = require('../../database/queries/taskQueries');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 class MemoryService {
@@ -14,16 +15,18 @@ class MemoryService {
     }
   }
 
-  async updateMemory(userId) {
+  // timezone is the caller's: the 7-day window is compared against
+  // assigned_date, a per-user local day, so a server-derived window analysed
+  // the wrong slice of the user's history.
+  async updateMemory(userId, timezone = 'UTC') {
     try {
       // Collect data for memory update
-      const lastWeek = new Date();
-      lastWeek.setDate(lastWeek.getDate() - 7);
-      
+      const today = timezoneUtils.getLocalDateString(timezone);
+
       const recentTasks = await taskQueries.getWeeklyTasks(
         userId,
-        lastWeek.toISOString().split('T')[0],
-        new Date().toISOString().split('T')[0]
+        timezoneUtils.addDaysToDateString(today, -7),
+        today
       );
 
       const currentMemory = await this.getActiveMemory(userId);

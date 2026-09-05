@@ -1,5 +1,5 @@
--- Add an explicit beta-tester marker to users.
--- Run this migration on your Supabase database.
+-- Migration 008 — explicit beta-tester marker on users
+-- (was migrations/add_is_beta_flag.sql)
 --
 -- WHY: "beta tester" was previously a proxy (onboarded + not founding), which
 -- can't distinguish an INVITED tester from a random public signup. This flag is

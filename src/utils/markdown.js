@@ -15,6 +15,10 @@ const markdown = {
       }
     }
     const normalized = String(text).normalize('NFKC');
+    // Escape EXACTLY MarkdownV2's 18 reserved characters. ':' and ',' used to be
+    // escaped here too, but they are NOT reserved — '\:' / '\,' are needless (and
+    // in some positions invalid) escapes that risk a "can't parse entities"
+    // rejection. Now consistent with escapeMarkdown / telegramUtils (BUG-009).
     return normalized
       .replace(/_/g, '\\_')
       .replace(/\*/g, '\\*')
@@ -33,9 +37,7 @@ const markdown = {
       .replace(/\{/g, '\\{')
       .replace(/\}/g, '\\}')
       .replace(/\./g, '\\.')
-      .replace(/\!/g, '\\!')
-      .replace(/\:/g, '\\:')
-      .replace(/\,/g, '\\,');
+      .replace(/\!/g, '\\!');
   },
 
   unescapeMarkdown(text) {
@@ -58,9 +60,7 @@ const markdown = {
       .replace(/\\\{/g, '{')
       .replace(/\\\}/g, '}')
       .replace(/\\\./g, '.')
-      .replace(/\\\!/g, '!')
-      .replace(/\\\:/g, ':')
-      .replace(/\\\,/g, ',');
+      .replace(/\\\!/g, '!');
   },
 };
 

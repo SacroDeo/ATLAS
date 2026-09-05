@@ -5,6 +5,7 @@ const dailyTaskGenerator = require('../../services/ai/dailyTaskGenerator');
 const personalityService = require('../../services/personality/personalityService');
 const inlineKeyboards = require('../keyboards/inlineKeyboards');
 const logger = require('../../utils/logger');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const telegramClient = require('../../utils/telegram/telegramClient');
 const groupMembership = require('../../services/beta/groupMembership');
 const { formatTask, combineSections } = require('../../utils/telegram/telegramFormatter');
@@ -39,7 +40,8 @@ class StartCommand {
       // grant beta + 1 month Pro now. Fire-and-forget — never delays task delivery.
       groupMembership.catchUpBetaOnStart(this.bot, user).catch(() => {});
 
-      const todayTasks = await taskQueries.getDailyTasks(user.id);
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+      const todayTasks = await taskQueries.getDailyTasks(user.id, today);
 
       if (todayTasks.length === 0) {
         await telegramClient.sendMessage(

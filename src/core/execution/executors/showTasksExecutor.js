@@ -2,6 +2,7 @@
 
 const taskQueries = require('../../../database/queries/taskQueries');
 const timezoneUtils = require('../../../utils/timezoneUtils');
+const { isPending } = require('../taskOrdering');
 
 class ShowTasksExecutor {
 
@@ -9,9 +10,8 @@ class ShowTasksExecutor {
     const user = context.user;
 
     try {
-      const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
-const today = userNow.toISOString().split('T')[0];      const tasks = await taskQueries.getDailyTasks(user.id, today);
-      // ...rest unchanged
+      const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
+      const tasks = await taskQueries.getDailyTasks(user.id, today);
 
       if (!tasks || tasks.length === 0) {
         return {
@@ -20,30 +20,36 @@ const today = userNow.toISOString().split('T')[0];      const tasks = await task
         };
       }
 
-      const pending = tasks.filter(t => t.status === 'pending');
+      const pending = tasks.filter(isPending);
       const completed = tasks.filter(t => t.status === 'completed');
       const skipped = tasks.filter(t => t.status === 'skipped');
 
       let message = '';
 
+      // Continuous numbering across groups (pending 1..P, completed P+1.., …) so
+      // every number the user sees maps 1:1 to taskOrdering.orderForNumbering,
+      // which is what delete/update resolve against. A per-group restart is what
+      // made "delete task 1" ambiguous (BUG-004). `n` is the running position.
+      let n = 0;
+
       if (pending.length > 0) {
         message += `📋 *Pending (${pending.length})*\n`;
-        pending.forEach((task, i) => {
-          message += `${i + 1}. ${task.title}\n`;
+        pending.forEach((task) => {
+          message += `${++n}. ${task.title}\n`;
         });
       }
 
       if (completed.length > 0) {
         message += `\n✅ *Completed (${completed.length})*\n`;
-        completed.forEach((task, i) => {
-          message += `${i + 1}. ${task.title}\n`;
+        completed.forEach((task) => {
+          message += `${++n}. ${task.title}\n`;
         });
       }
 
       if (skipped.length > 0) {
         message += `\n⏭️ *Skipped (${skipped.length})*\n`;
-        skipped.forEach((task, i) => {
-          message += `${i + 1}. ${task.title}\n`;
+        skipped.forEach((task) => {
+          message += `${++n}. ${task.title}\n`;
         });
       }
 

@@ -12,8 +12,11 @@ class TogetherProvider {
     this.maxRetries = 3;
     this.retryDelay = 1000;
 
+    // Together is an OPTIONAL fallback behind Groq (primary) and Gemini; running
+    // without it is a supported setup, not a fault. So an unset key is info, not a
+    // warning that looks like a boot error. Set TOGETHER_API_KEY in .env to enable.
     if (!this.apiKey) {
-      logger.warn('Together AI API key not configured - provider will be skipped');
+      logger.info('Together AI not configured — skipping optional fallback provider');
     }
   }
 
@@ -40,7 +43,10 @@ class TogetherProvider {
             model: this.model,
             messages,
             temperature: options.temperature ?? 0.7,
-            max_tokens: options.maxTokens || 1000,
+            // Floor mirrors Groq/Gemini: a tiny budget (e.g. maxTokens: 5 for a
+            // true/false check) otherwise returns empty on failover and the
+            // boolean silently reads false.
+            max_tokens: Math.max(options.maxTokens || 1000, 512),
             top_p: options.topP ?? 1,
           }),
         });

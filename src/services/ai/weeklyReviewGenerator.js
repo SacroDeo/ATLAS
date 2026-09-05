@@ -8,7 +8,10 @@ const logger = require('../../utils/logger');
 class WeeklyReviewGenerator {
   async generateReviewForUser(telegramId, user) {
     try {
-      const weekRange = dateUtils.getWeekRange();
+      // The user's own Monday-Sunday week, not the server's. For a user west
+      // of UTC these differ once UTC rolls into Monday, and the stats below
+      // would then cover next week (empty) instead of the week just finished.
+      const weekRange = dateUtils.getWeekRange(user.timezone);
       const weekNumber = dateUtils.getWeekNumber();
 
       // Check if review already exists

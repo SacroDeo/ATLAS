@@ -27,8 +27,7 @@ function extractNumberedList(text) {
 async function execute(plan, context) {
   try {
     const { user } = context;
-    const userNow = timezoneUtils.getCurrentTimeInZone(user.timezone || 'UTC');
-const today = userNow.toISOString().split('T')[0];
+    const today = timezoneUtils.getLocalDateString(user.timezone || 'UTC');
     const rawDescription = plan.payload?.description || context.messageText || '';
 
     if (!rawDescription.trim()) {

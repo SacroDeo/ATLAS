@@ -2,6 +2,7 @@
 const taskQueries = require('../../../database/queries/taskQueries');
 const timezoneUtils = require('../../../utils/timezoneUtils');
 const logger = require('../../../utils/logger');
+const { orderForNumbering } = require('../taskOrdering');
 
 class DeleteTasksExecutor {
 
@@ -22,8 +23,7 @@ class DeleteTasksExecutor {
       const target = plan.payload?.target;
       const rawNumbers = plan.payload?.task_number;
 
-      const userNow = timezoneUtils.getCurrentTimeInZone(context.user.timezone || 'UTC');
-const today = userNow.toISOString().split('T')[0];
+      const today = timezoneUtils.getLocalDateString(context.user.timezone || 'UTC');
       const tasks = await taskQueries.getDailyTasks(userId, today);
 
       if (!tasks || tasks.length === 0) {
@@ -33,7 +33,12 @@ const today = userNow.toISOString().split('T')[0];
       // ── BULK DELETE ALL ──────────────────────────────────────────
       if (target === 'all') {
         const taskIds = tasks.map(t => t.id);
-        await taskQueries.deleteTasksBulk(userId, taskIds);
+        // deleteTasksBulk swallows its own error and returns false — if we
+        // don't check it we'd claim success while nothing was deleted (BUG-013).
+        const ok = await taskQueries.deleteTasksBulk(userId, taskIds);
+        if (!ok) {
+          return { success: false, message: '❌ Failed to delete your tasks. Try again.' };
+        }
         return {
           success: true,
           message: `✅ Deleted all ${taskIds.length} tasks for today.`
@@ -47,18 +52,22 @@ const today = userNow.toISOString().split('T')[0];
         return { success: false, message: '❌ Invalid task number.' };
       }
 
+      // Resolve numbers against the SAME order the user saw (taskOrdering),
+      // never the raw created_at list — that mismatch is BUG-004.
+      const ordered = orderForNumbering(tasks);
+
       // Validate all numbers before deleting anything
-      const outOfRange = numbers.filter(n => n > tasks.length);
+      const outOfRange = numbers.filter(n => n > ordered.length);
       if (outOfRange.length > 0) {
         return {
           success: false,
-          message: `❌ Task${outOfRange.length > 1 ? 's' : ''} ${outOfRange.join(', ')} not found. You have ${tasks.length} task(s) today.`
+          message: `❌ Task${outOfRange.length > 1 ? 's' : ''} ${outOfRange.join(', ')} not found. You have ${ordered.length} task(s) today.`
         };
       }
 
       if (numbers.length === 1) {
         // Single delete — simple path
-        const targetTask = tasks[numbers[0] - 1];
+        const targetTask = ordered[numbers[0] - 1];
         await taskQueries.deleteTask(targetTask.id, userId);
         return {
           success: true,
@@ -72,10 +81,11 @@ const today = userNow.toISOString().split('T')[0];
       const deleted = [];
 
       for (const num of sorted) {
-        // Re-fetch each time so position → id mapping is always fresh
-        const currentTasks = await taskQueries.getDailyTasks(userId, today);
-        if (!currentTasks[num - 1]) continue;
-        const task = currentTasks[num - 1];
+        // Re-fetch AND re-order each time so position → id mapping stays fresh
+        // and keeps matching the numbering the user acted on.
+        const currentOrdered = orderForNumbering(await taskQueries.getDailyTasks(userId, today));
+        if (!currentOrdered[num - 1]) continue;
+        const task = currentOrdered[num - 1];
         await taskQueries.deleteTask(task.id, userId);
         deleted.push(`${num}. "${task.title}"`);
       }

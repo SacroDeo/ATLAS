@@ -3,11 +3,17 @@ const taskQueries = require('../../database/queries/taskQueries');
 const userQueries = require('../../database/queries/userQueries');
 const socraticEvaluator = require('../ai/socraticEvaluator');
 const aiOrchestrator = require('../ai/aiOrchestrator');
+const timezoneUtils = require('../../utils/timezoneUtils');
 const logger = require('../../utils/logger');
 
 class TaskService {
   // FIX 9: Idempotent task completion with atomic conditional update
-  async handleTaskComplete(userId, taskId) {
+  //
+  // `timezone` is threaded through from the handler because every "today" and
+  // rolling-window question below is about the USER's calendar day, not the
+  // server's. Defaults to UTC so an older caller degrades to the previous
+  // behaviour instead of throwing.
+  async handleTaskComplete(userId, taskId, timezone = 'UTC') {
     try {
       const { supabase } = require('../../config/supabase');
 
@@ -65,7 +71,7 @@ class TaskService {
       // exactly once per user per day. Incrementing at completion time as well
       // double-counted streaks (+2/day for fully-completing users).
 
-      const shouldAsk = await socraticEvaluator.shouldAskSocratic(userId);
+      const shouldAsk = await socraticEvaluator.shouldAskSocratic(userId, timezone);
 
       // First-task celebration: reinforce early win
       const isFirstTaskEver = await this.checkIfFirstTaskEver(userId);
@@ -139,8 +145,10 @@ class TaskService {
       }
 
       if (originalTask.status === 'too_hard') {
-        const today = new Date().toISOString().split('T')[0];
-const todayTasks = await taskQueries.getDailyTasks(userId, today);
+        // Look for the existing simplified copy on the ORIGINAL task's day, not
+        // on any clock-derived "today" — createSimplifiedTask stamps it with
+        // originalTask.assigned_date, so that is the only day it can be on.
+        const todayTasks = await taskQueries.getDailyTasks(userId, originalTask.assigned_date);
         const simplifiedTitle = `${originalTask.title} (Simplified)`;
         const existingSimplified = todayTasks.find(t => t.title === simplifiedTitle);
         
@@ -233,10 +241,10 @@ const todayTasks = await taskQueries.getDailyTasks(userId, today);
     }
   }
 
-  async getTodayProgress(userId) {
+  async getTodayProgress(userId, timezone = 'UTC') {
     try {
-      const today = new Date().toISOString().split('T')[0];
-const todayTasks = await taskQueries.getDailyTasks(userId, today);
+      const today = timezoneUtils.getLocalDateString(timezone);
+      const todayTasks = await taskQueries.getDailyTasks(userId, today);
       
       const completed = todayTasks.filter(t => t.status === 'completed').length;
       const total = todayTasks.length;

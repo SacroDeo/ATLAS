@@ -23,6 +23,20 @@ if (config.server.env === 'production' && process.env.ENABLE_DEV_LOGIN === 'true
   logger.error('FATAL: ENABLE_DEV_LOGIN=true with NODE_ENV=production. Refusing to start with dev auth bypass enabled.');
   process.exit(1);
 }
+// The bot token and database creds are non-negotiable: without them the process
+// boots and then dies cryptically on the first Telegram call or DB query (or
+// createClient throws a vague "supabaseUrl is required"). Name what's missing
+// now, up front (BUG-029).
+const requiredEnv = {
+  TELEGRAM_BOT_TOKEN:   config.telegram.token,
+  SUPABASE_URL:         config.supabase.url,
+  SUPABASE_SERVICE_KEY: config.supabase.serviceKey,
+};
+const missingEnv = Object.entries(requiredEnv).filter(([, v]) => !v).map(([k]) => k);
+if (missingEnv.length > 0) {
+  logger.error(`FATAL: missing required env var(s): ${missingEnv.join(', ')}. Set them and restart.`);
+  process.exit(1);
+}
 
 const dashboardRoutes = require('./src/dashboard/dashboardRoutes');
 
@@ -83,12 +97,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 const bot = new TelegramBot(config.telegram.token, { polling: true });
 setAlertBot(bot);
 
-// Last-resort process guards: alert the admin, log, and let the process
-// keep running (polling restarts itself; a supervisor restarts hard crashes).
+// Last-resort process guards. On an UNCAUGHT EXCEPTION the process is in an
+// undefined state — a half-open DB transaction, a torn in-memory structure —
+// and this service handles payments, so continuing to serve from it risks
+// silent data corruption that is worse than a restart. Log, fire the admin
+// alert, give it ~1s to flush over the network, then exit non-zero so the
+// platform restarts a CLEAN process. This is consistent with the original
+// "a supervisor restarts hard crashes" reasoning — we just let the supervisor
+// do its job instead of soldiering on corrupted (BUG-034).
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught exception:', err);
-  alertAdmin('uncaught', `Uncaught exception: ${err.stack || err.message}`);
+  try { alertAdmin('uncaught', `Uncaught exception: ${err.stack || err.message}`); } catch (_) {}
+  setTimeout(() => process.exit(1), 1000);
 });
+// An unhandled promise rejection does NOT carry the same "whole process is now
+// corrupt" guarantee as a synchronous uncaught throw — it is usually a single
+// missed .catch(). Surface it loudly (log + alert) but keep running, so one
+// stray rejection can't take the whole bot offline.
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection:', reason);
   alertAdmin('rejection', `Unhandled rejection: ${reason?.stack || reason}`);
@@ -205,12 +230,25 @@ bot.on('polling_error', (error) => {
   }
 });
 
-dailyCron.start();
-weeklyCron.start();
-checkinCron.start();
-day2RecoveryCron.start();
-reengagementCron.start();
-logger.info('Cron jobs initialized');
+// BUG-003: crons used to .start() unconditionally on every instance, so any
+// second instance (Render's 10-30s deploy overlap, or a stray local server)
+// double-fires every job — duplicate daily tasks, check-ins, re-engagement DMs.
+// Gate is FAIL-SAFE opt-out: crons run by default (preserving current single-
+// instance behavior with zero config) and are disabled ONLY where RUN_CRONS is
+// explicitly 'false'. Set RUN_CRONS=false on any extra instance so exactly one
+// leader runs the jobs. (A DB advisory lock for hard leader-election is the
+// follow-up; this gate is the immediate guard.)
+const cronsEnabled = process.env.RUN_CRONS !== 'false';
+if (cronsEnabled) {
+  dailyCron.start();
+  weeklyCron.start();
+  checkinCron.start();
+  day2RecoveryCron.start();
+  reengagementCron.start();
+  logger.info('Cron jobs initialized (RUN_CRONS enabled — this instance is the cron leader)');
+} else {
+  logger.warn('Cron jobs DISABLED (RUN_CRONS=false) — this instance will not run scheduled jobs');
+}
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });

@@ -1,4 +1,4 @@
-const { toZonedTime, fromZonedTime, format } = require('date-fns-tz');
+const { toZonedTime, format } = require('date-fns-tz');
 
 const cityMap = {
   'mumbai': 'Asia/Kolkata',
@@ -150,14 +150,11 @@ const timezoneUtils = {
       : `${sign}${offsetHours}`;
   },
 
-  userTimeToUTC(timeString, timezone) {
-    const today = new Date().toISOString().split('T')[0];
-    const localDateTime = `${today}T${timeString}:00`;
-    return fromZonedTime(localDateTime, timezone);
-  },
-
-  getCurrentTimeInZone(timezone) {
-    return toZonedTime(new Date(), timezone);
+  // The instant is injectable (default: now) for the same reason
+  // getLocalDateString takes one — week/day maths at a zone boundary cannot be
+  // tested against a hardcoded new Date().
+  getCurrentTimeInZone(timezone, date = new Date()) {
+    return toZonedTime(date, timezone);
   },
 
   /**
@@ -181,6 +178,38 @@ const timezoneUtils = {
       timezone,
       new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
     );
+  },
+
+  /**
+   * Pure calendar arithmetic on a YYYY-MM-DD string — no timezone involved,
+   * because there is none to involve: the input is already a local calendar
+   * day. Use this to walk backwards/forwards over days instead of subtracting
+   * 24h from a timestamp and re-formatting, which repeats or skips a day
+   * across a DST transition.
+   */
+  addDaysToDateString(dateString, delta) {
+    const [y, m, d] = String(dateString).split('-').map(Number);
+    // Noon UTC keeps the arithmetic away from every offset boundary.
+    const anchor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    anchor.setUTCDate(anchor.getUTCDate() + delta);
+    return anchor.toISOString().split('T')[0];
+  },
+
+  /**
+   * Day of week (0 = Sunday … 6 = Saturday) for a YYYY-MM-DD calendar day.
+   * Also pure — no timezone, because the input is already a local day.
+   */
+  getDayOfWeek(dateString) {
+    const [y, m, d] = String(dateString).split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
+  },
+
+  /**
+   * The Monday that starts the local week containing `dateString`.
+   */
+  startOfWeekDateString(dateString) {
+    const daysSinceMonday = (this.getDayOfWeek(dateString) + 6) % 7;
+    return this.addDaysToDateString(dateString, -daysSinceMonday);
   },
 
   formatTimeInZone(date, timezone) {

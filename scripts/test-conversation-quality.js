@@ -43,6 +43,15 @@ const FAKE_HUMANITY = [
 const results = [];
 let failures = 0;
 
+// gpt-oss-120b writes typographic punctuation — "don’t", "I’m", "beginner‑friendly"
+// — so an assertion written with an ASCII apostrophe silently never matches and a
+// perfectly honest reply gets scored as a failure. Fold the curly forms before
+// testing so these checks measure what ATLAS SAID, not which codepoint it picked.
+const normalize = (s) => String(s)
+  .replace(/[‘’ʼ]/g, "'")
+  .replace(/[“”]/g, '"')
+  .replace(/‑/g, '-');
+
 async function turn(label, message, history, assertions) {
   // Groq's free tier is 8k tokens/minute and each of these calls costs ~1k, so
   // back-to-back turns trip the limiter and spend the run on retry backoff.
@@ -57,9 +66,13 @@ async function turn(label, message, history, assertions) {
     return null;
   }
 
+  // Content assertions read the normalized text; the shape checks below read the
+  // raw reply, since that is exactly what Telegram will render.
+  const text = normalize(reply);
+
   const problems = [];
-  for (const re of BANNED) if (re.test(reply)) problems.push(`canned fallback: ${re}`);
-  for (const re of FAKE_HUMANITY) if (re.test(reply)) problems.push(`fake humanity: ${re}`);
+  for (const re of BANNED) if (re.test(text)) problems.push(`canned fallback: ${re}`);
+  for (const re of FAKE_HUMANITY) if (re.test(text)) problems.push(`fake humanity: ${re}`);
   // Chat is prose. Catch bullets AND numbered steps AND bold headings — the
   // "here is a document" register, not just one marker style.
   if (/^\s*[-*•]\s/m.test(reply)) problems.push('used a bullet list');
@@ -69,7 +82,7 @@ async function turn(label, message, history, assertions) {
 
   for (const [name, fn] of Object.entries(assertions || {})) {
     let ok = false;
-    try { ok = fn(reply); } catch { ok = false; }
+    try { ok = fn(text); } catch { ok = false; }
     if (!ok) problems.push(name);
   }
 

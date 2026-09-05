@@ -2,6 +2,7 @@
 const aiOrchestrator = require('../../services/ai/aiOrchestrator');
 const ACTIONS = require('../actions/actionTypes');
 const logger = require('../../utils/logger');
+const { sanitizeForPrompt } = require('../../utils/promptSanitizer');
 
 
 function extractTimeConstraint(text = '') {
@@ -71,12 +72,61 @@ const CONVERSATIONAL_PATTERNS = [
   /^(what|when)\s*was\s*the\s*last\s*time\s*we\b.{0,60}$/i,
 ];
 
+// Anything naming the user's task list, goal, or plan might be a real request
+// dressed as conversation — "I'm frustrated with these tasks" means "give me
+// easier ones", which is GENERATE_TASKS, not chat. The pattern groups below are
+// only consulted when NONE of these words appear, so an ambiguous message keeps
+// its trip through the AI classifier and its chance at an action intent.
+const TASK_SURFACE = /\b(task|tasks|todo|to-?do|goal|goals|roadmap|plan|planner|streak|progress|deadline|schedule|resources?|easier|harder|simplify|beginner|delete|remove|generate|create|swap|replace|update|assign)\b/i;
+
+// Venting and mood. These have no action in them, but a classifier whose job is
+// finding task intents will reach for one anyway — "today was terrible" reads as
+// a complaint about the task list if you are looking for complaints.
+const EMOTIONAL_PATTERNS = [
+  /^(i'?m?|i\s*am|im)\s*(so|really|kinda|kind\s*of|pretty|very|super|feeling|just)?\s*(tired|exhausted|drained|burnt?\s*out|stressed|anxious|sad|down|low|depressed|frustrated|overwhelmed|lost|stuck|bored|lonely|angry|upset|nervous|scared|worried|unmotivated|demotivated|lazy|fine|good|okay|ok|great)\b.{0,60}$/i,
+  /^(today|yesterday|this\s*week|last\s*night|my\s*day|my\s*week)\s*(was|has\s*been|is)\b.{0,60}$/i,
+  /^(my|the)\s*(day|week|mood|head|brain)\s*(was|is|has\s*been)\b.{0,50}$/i,
+  /^(this|that|it|everything|life)\s*(is|was)\s*(so\s*|really\s*|kinda\s*)?(hard|tough|difficult|terrible|awful|bad|rough|sucks?|exhausting|frustrating|annoying|boring|confusing|great|good|awesome|amazing|fine)\b.{0,40}$/i,
+  /^(i\s*)?(feel|felt|feeling)\b.{0,60}$/i,
+  /^(that|this)\s*(sounds?|seems?|looks?|feels?)\b.{0,50}$/i,
+];
+
+// Bare follow-ups. They only mean anything against the previous turn, which is
+// exactly what the chat path has and the classifier does not.
+const FOLLOWUP_PATTERNS = [
+  /^(why|how)\s*(come|so|then)?[\s?!.]*$/i,
+  /^(why|how)\s*(does|do|would|will|is|are|did)\s*(that|this|it|those|these)\b.{0,40}$/i,
+  /^(what|who|which)\s*(do|does|did)\s*(you|u)\s*mean\b.{0,40}$/i,
+  /^(explain|elaborate|expand\s*on|clarify)\s*(that|it|this|more|further|please)?[\s?!.]*$/i,
+  /^(go\s*on|and\s*then|then\s*what|and|so|really|seriously|for\s*real|no\s*way|makes\s*sense|i\s*see|ah+|oh+|hmm+|wait|huh)[\s?!.]*$/i,
+  /^(the|that)\s*(thing|one|stuff|part|bit)\s*(from|we|i|you|u)\b.{0,50}$/i,
+  /^(idk|i\s*dun+o|i\s*don'?t\s*know|not\s*sure|maybe|nah|dunno)\b[\s?!.,]*$/i,
+];
+
+// Real speech opens with filler: "man today was terrible", "ugh im so tired",
+// "honestly idk". Stripping the vocative once here beats threading an optional
+// prefix group through every pattern below. The `$` alternative lets the filler
+// BE the whole message ("ugh", "well…") — those are chat too.
+const LEADING_FILLER = /^(?:(?:man|bro|dude|buddy|atlas|hey|yo|ugh+|ah+|oh+|aw+|damn|honestly|tbh|ngl|frfr|lol|well|so|but|and|okay|ok|yeah|yep|nah|hmm+)(?:[\s,!.]+|$))+/i;
+
 function isConversational(message) {
   const trimmed = message.trim();
   // Long messages are substantive by definition — let the real classifier read
   // them rather than pattern-matching a prefix.
   if (trimmed.length > 90) return false;
-  return CONVERSATIONAL_PATTERNS.some(re => re.test(trimmed));
+  if (CONVERSATIONAL_PATTERNS.some(re => re.test(trimmed))) return true;
+
+  // Mood and bare follow-ups are chat only when the message says nothing about
+  // their tasks or goal. "i'm frustrated" is chat; "i'm frustrated with these
+  // tasks" is a request for different ones, so it keeps going to the classifier.
+  if (TASK_SURFACE.test(trimmed)) return false;
+
+  const stripped = trimmed.replace(LEADING_FILLER, '').trim();
+  if (!stripped) return true; // the whole message was filler — "ugh", "well..."
+  return (
+    EMOTIONAL_PATTERNS.some(re => re.test(stripped)) ||
+    FOLLOWUP_PATTERNS.some(re => re.test(stripped))
+  );
 }
 
 class ActionPlanner {
@@ -235,97 +285,55 @@ _localClassify(message) {
       };
     }
 
-    // 2. Build context summary for AI — give it everything it needs
+    // 2. Build context summary for AI — give it everything it needs.
+    // task titles + history + the live message are all user-controlled and this
+    // prompt is sent as a single user-role blob (no separate <user_data> block),
+    // so sanitizeForPrompt is the ONLY injection defense on this path (BUG-008).
     const taskSummary = context.tasks && context.tasks.length > 0
-      ? context.tasks.map((t, i) => `${i + 1}. ${t.title} (${t.status})`).join('\n')
+      ? context.tasks.map((t, i) => `${i + 1}. ${sanitizeForPrompt(t.title, 200)} (${t.status})`).join('\n')
       : 'No tasks today';
 
     const recentHistory = context.history && context.history.length > 0
-      ? context.history.slice(-4).map(h => `${h.role}: ${h.content}`).join('\n')
+      ? context.history.slice(-4).map(h => `${h.role}: ${sanitizeForPrompt(h.content, 500)}`).join('\n')
       : 'No recent conversation';
 
     try {
-      const prompt = `You are an intent classifier for ATLAS, a personal goal assistant bot.
+      // Kept deliberately tight. This prompt runs on every message the local
+      // classifier cannot resolve, so its size is a per-user-message tax: the
+      // long version was 943 tokens — larger than the chat reply it precedes —
+      // and most of that was worked examples for phrasings _localClassify now
+      // matches for free. What has to stay is the intent list (the decision),
+      // the task list and recent turns (needed to resolve "task 3" and "that
+      // one"), and the JSON envelope the parser below expects.
+      const prompt = `Classify the user's intent for ATLAS, a personal goal assistant bot.
 
-USER PROFILE:
-- Name: ${context.user.first_name}
-- Goal: ${context.user.goal}
-- Streak: ${context.user.current_streak} days
-- Personality: ${context.user.personality_type}
-
-TODAY'S TASKS (${context.taskCount} total):
+TASKS TODAY (${context.taskCount}):
 ${taskSummary}
 
 RECENT CONVERSATION:
 ${recentHistory}
 
-CURRENT MESSAGE: "${message}"
+MESSAGE: "${sanitizeForPrompt(message, 2000)}"
 
-AVAILABLE INTENTS:
-- GENERATE_TASKS: User wants to create/generate new tasks
-- SHOW_TASKS: User wants to see/view their tasks
-- ADD_TASK: User wants to add one specific task (extract description)
-- DELETE_TASK: User wants to delete one specific task (extract task_number)
-- DELETE_TASKS: User wants to delete all/multiple tasks
-- UPDATE_GOALS: User wants to change their goal
-- SHOW_GOAL: User wants to see their current goal
-- UPDATE_TASK: User wants to replace or change a specific task number with something new
-- SHOW_PROGRESS: User wants to see their progress stats, completion rate, streak, or how they're doing today
-- GENERAL_CHAT: Conversation, questions, advice, anything else
+INTENTS — pick exactly one:
+GENERATE_TASKS — wants new, different, easier, harder, beginner, or free-resource tasks, or tasks on a topic → focus_area
+SHOW_TASKS — wants to see today's tasks
+ADD_TASK — names one specific thing they intend to do → description
+DELETE_TASK — one task by number → task_number
+DELETE_TASKS — all or several tasks → task_number "1,2" or target "all"
+UPDATE_TASK — replace or change task N with something else → task_number + new_title
+UPDATE_GOALS — wants a different goal → goal
+SHOW_GOAL — wants to see their current goal
+SHOW_PROGRESS — stats, streak, completion rate, "how am i doing"
+GENERAL_CHAT — conversation, questions, advice, venting, anything else
 
+Read RECENT CONVERSATION to resolve references like "that one" or "the second one".
+Any complaint about the current tasks that implies wanting different ones is
+GENERATE_TASKS. When genuinely unsure, choose GENERAL_CHAT: replying costs
+nothing, while a wrong action edits their real data.
 
-CLASSIFICATION RULES:
-- Read the full conversation history — context matters more than the single message
-- "delete task 3" → DELETE_TASK with task_number: 3
-- "delete all" → DELETE_TASKS with target: "all"  
-- "add task X" / "add X to my tasks" → ADD_TASK with description: X
-- "generate tasks on X" / "give me X tasks" → GENERATE_TASKS with focus_area: X
-- "change my goal to X" / "update goal" → UPDATE_GOALS with goal: X
-- "show my goal" / "what is my goal" → SHOW_GOAL
-- "replace task 3 with X" / "change task 2 to X" / "swap task 1 with X" → UPDATE_TASK with task_number: 3 and new_title: X
-- "show progress" / "what is my progress" → SHOW_PROGRESS
-- "show my progress" / "progress" / "how am i doing" / "my stats" → SHOW_PROGRESS
-GENERATE_TASKS also applies when user says things like:
-- "I want free resources" / "give me free stuff" / "these are expensive" → GENERATE_TASKS with focus_area: "free resources"
-- "make easier tasks" / "too hard" / "simplify" → GENERATE_TASKS with focus_area: "easier tasks"  
-- "give me beginner tasks" / "start from scratch" → GENERATE_TASKS with focus_area: "beginner level"
-- "tasks for [specific topic]" / "focus on [X]" → GENERATE_TASKS with focus_area: X
-- Any complaint about current tasks followed by wanting new ones → GENERATE_TASKS
-
-ADD_TASK applies when:
-- User describes ONE specific thing they want to do today
-- "I need to call my client today" / "remind me to study chapter 3"
-- Sounds like a personal to-do, not a request for AI to generate
-
-GENERAL_CHAT applies when:
-- User is asking questions, venting, having a conversation
-- No clear action is implied
-- Asking for advice without wanting tasks changed
-- When genuinely ambiguous with no history context to resolve it
-- Greetings, small talk, jokes, thanks, goodbyes, or emotional statements
-- The user asks about you, about your memory, or about an earlier conversation
-- The user drops a topic ("never mind", "forget it") or changes the subject
-- IMPORTANT: GENERAL_CHAT is a perfectly good answer, not a failure. Only pick an
-  action intent when the user actually wants something DONE to their tasks or
-  goal. If in doubt between an action and conversation, choose GENERAL_CHAT —
-  replying naturally costs nothing, while wrongly firing an action edits their
-  real data.
-
-Return ONLY valid JSON, no extra text:
-{
-  "intent": "<INTENT>",
-  "confidence": <0.0-1.0>,
-  "requires_confirmation": false,
-  "payload": {
-    "description": null,
-    "task_number": null,
-    "new_title": null,
-    "target": null,
-    "goal": null,
-    "focus_area": null
-  },
-  "clarification_question": null
-}`;
+Return ONLY this JSON, no other text:
+{"intent":"<INTENT>","confidence":<0.0-1.0>,"requires_confirmation":false,"payload":{"description":null,"task_number":null,"new_title":null,"target":null,"goal":null,"focus_area":null},"clarification_question":null}`;
 
       const response = await aiOrchestrator.execute(
         [{ role: 'user', content: prompt }],

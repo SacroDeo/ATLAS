@@ -43,31 +43,72 @@ const premiumQueries = {
   // is already 'founding' or 'paid', we tag beta but leave their premium alone.
   // Returns the updated row (null = no such user, i.e. never pressed /start).
   async grantGroupBeta(telegramId) {
-    const existing = await supabase
-      .from('users')
-      .select('telegram_id, premium_source, tier')
-      .eq('telegram_id', telegramId)
-      .maybeSingle();
-    if (existing.error) throw existing.error;
-    if (!existing.data) return null; // no row to update
+    const MAX_ATTEMPTS = 4;
+    const STRONGER_SOURCES = ['founding', 'paid'];
+    const SELECT =
+      'telegram_id, username, first_name, is_beta, tier, premium_until, premium_source';
 
-    const strongerSources = ['founding', 'paid'];
-    const keepPremium = strongerSources.includes(existing.data.premium_source);
+    // Read, decide, write-if-unchanged. The previous version read premium_source,
+    // decided in JS whether the user's premium was ours to overwrite, and then
+    // wrote unconditionally (BUG-027) — so a payment landing in that gap was
+    // downgraded to a 30-day 'group' grant. revokeGroupBeta in this same file
+    // already showed the right shape; this now follows it.
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const existing = await supabase
+        .from('users')
+        .select('telegram_id, premium_source, tier')
+        .eq('telegram_id', telegramId)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      if (!existing.data) return null; // no row to update
 
-    const update = { is_beta: true };
-    if (!keepPremium) {
-      update.tier = 'premium';
-      update.premium_until = new Date(Date.now() + 30 * 864e5).toISOString();
-      update.premium_source = 'group';
+      const source = existing.data.premium_source;
+      const keepPremium = STRONGER_SOURCES.includes(source);
+
+      // Paid or founding: tag beta, leave their premium alone. This write touches
+      // no field the decision read, so it needs no guard.
+      if (keepPremium) {
+        const { data, error } = await supabase
+          .from('users')
+          .update({ is_beta: true })
+          .eq('telegram_id', telegramId)
+          .select(SELECT)
+          .maybeSingle();
+        if (error) throw error;
+        return data;
+      }
+
+      // Granting overwrites premium_source, which is exactly what the decision
+      // above was made from — so make the write conditional on it still holding
+      // the value we read. `.eq` never matches NULL, so an unset source needs
+      // `.is` (== null covers both null and a column absent from the row).
+      let write = supabase
+        .from('users')
+        .update({
+          is_beta: true,
+          tier: 'premium',
+          premium_until: new Date(Date.now() + 30 * 864e5).toISOString(),
+          premium_source: 'group',
+        })
+        .eq('telegram_id', telegramId);
+
+      write =
+        source == null
+          ? write.is('premium_source', null)
+          : write.eq('premium_source', source);
+
+      const { data, error } = await write.select(SELECT).maybeSingle();
+      if (error) throw error;
+      if (data) return data;
+
+      // Zero rows: premium_source moved under us, quite possibly to 'paid'.
+      // Re-read and decide again rather than clobbering whatever it became.
     }
-    const { data, error } = await supabase
-      .from('users')
-      .update(update)
-      .eq('telegram_id', telegramId)
-      .select('telegram_id, username, first_name, is_beta, tier, premium_until, premium_source')
-      .maybeSingle();
-    if (error) throw error;
-    return data;
+
+    throw new Error(
+      `grantGroupBeta: premium_source for ${telegramId} moved under ${MAX_ATTEMPTS} ` +
+        'consecutive attempts; refusing to overwrite it blindly'
+    );
   },
 
   // Revoke on leaving the group: always untag is_beta; only strip premium when

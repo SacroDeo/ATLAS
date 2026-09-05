@@ -1,5 +1,24 @@
 // src/database/queries/userQueries.js
+//
+// `last_active` is a DATE column holding the USER'S own local day — it is what
+// /betastats counts as "active today" and what getInactiveUsers measures idle
+// time against. Deriving it from the server's clock stamped tomorrow (or
+// yesterday) for anyone whose local date differed from UTC, so a user who had
+// just spoken to the bot could read as inactive, and vice versa.
 const { supabase } = require('../../config/supabase');
+const timezoneUtils = require('../../utils/timezoneUtils');
+
+// Every writer below is low-frequency (onboarding steps, once-a-day streak and
+// progressive-question updates), so one extra `select timezone` is cheaper than
+// threading a timezone through ~25 call sites and getting it wrong in one.
+async function localTodayFor(column, value) {
+  const { data } = await supabase
+    .from('users')
+    .select('timezone')
+    .eq(column, value)
+    .maybeSingle();
+  return timezoneUtils.getLocalDateString(data?.timezone || 'UTC');
+}
 
 const userQueries = {
   async createUser(telegramId, userData) {
@@ -10,7 +29,10 @@ const userQueries = {
         username: userData.username,
         first_name: userData.first_name,
         last_name: userData.last_name,
-        last_active: new Date().toISOString().split('T')[0],
+        // A brand-new user has no timezone yet (onboarding guesses it from the
+        // Telegram language code a moment later), so UTC is the only thing
+        // available here — but a RETURNING user keeps theirs.
+        last_active: await localTodayFor('telegram_id', telegramId),
       }, { onConflict: 'telegram_id' })
       .select()
       .single();
@@ -62,7 +84,11 @@ const userQueries = {
     const updates = {
       onboarding_state: state,
       ...data,
-      last_active: new Date().toISOString().split('T')[0],
+      // If this same call is what sets the timezone (onboarding does), honour
+      // the incoming value rather than the row's pre-update one.
+      last_active: data.timezone
+        ? timezoneUtils.getLocalDateString(data.timezone)
+        : await localTodayFor('telegram_id', telegramId),
     };
 
     if (state === 'completed') {
@@ -80,43 +106,64 @@ const userQueries = {
     return user;
   },
 
+  // Compare-and-swap with a bounded retry. The previous version read
+  // current_streak, added 1 in JS, and wrote the sum back, so two completions
+  // landing together both read N and both wrote N+1 and one increment vanished
+  // (BUG-025). PostgREST cannot express `current_streak = current_streak + 1`,
+  // and a Postgres function to do it would leave this code broken until that
+  // migration reached the live database — so the write is guarded on the value
+  // that was read instead. A racing writer moves current_streak, the guard then
+  // matches zero rows, and we re-read and redo the arithmetic on the new value.
+  // Same idiom as premiumQueries.revokeGroupBeta and redeemCoupon.
   async updateStreak(userId, increment = true) {
-    const { data: user, error: fetchError } = await supabase
-      .from('users')
-      .select('current_streak, longest_streak')
-      .eq('id', userId)
-      .single();
+    const MAX_ATTEMPTS = 4;
 
-    if (fetchError) throw fetchError;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const { data: user, error: fetchError } = await supabase
+        .from('users')
+        .select('current_streak, longest_streak, timezone')
+        .eq('id', userId)
+        .single();
 
-    let newStreak = increment ? user.current_streak + 1 : 0;
-    let longestStreak = user.longest_streak;
+      if (fetchError) throw fetchError;
 
-    if (newStreak > longestStreak) {
-      longestStreak = newStreak;
+      const newStreak = increment ? (user.current_streak || 0) + 1 : 0;
+      const longestStreak = Math.max(user.longest_streak || 0, newStreak);
+
+      let write = supabase
+        .from('users')
+        .update({
+          current_streak: newStreak,
+          longest_streak: longestStreak,
+          last_active: timezoneUtils.getLocalDateString(user.timezone || 'UTC'),
+        })
+        .eq('id', userId);
+
+      // The guard itself. `.eq` never matches NULL, so a null streak needs `.is`.
+      write = user.current_streak === null
+        ? write.is('current_streak', null)
+        : write.eq('current_streak', user.current_streak);
+
+      const { data, error } = await write.select().maybeSingle();
+
+      if (error) throw error;
+      if (data) return data; // row was still as we read it, so the write landed
+
+      // Zero rows means someone changed current_streak between the read and the
+      // write. Loop: read the new value and recompute from it.
     }
 
-    const { data, error } = await supabase
-      .from('users')
-      .update({
-        current_streak: newStreak,
-        longest_streak: longestStreak,
-        last_active: new Date().toISOString().split('T')[0],
-      })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
+    throw new Error(
+      `updateStreak: current_streak for user ${userId} moved under ${MAX_ATTEMPTS} ` +
+        'consecutive read-modify-write attempts; refusing to overwrite it blindly'
+    );
   },
-
   async resetStreak(userId) {
     const { data, error } = await supabase
       .from('users')
       .update({
         current_streak: 0,
-        last_active: new Date().toISOString().split('T')[0],
+        last_active: await localTodayFor('id', userId),
       })
       .eq('id', userId)
       .select()
@@ -141,18 +188,25 @@ const userQueries = {
   },
 
   async getInactiveUsers(days = 3) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-
+    // Compare each user's last_active against THEIR OWN today. A single
+    // server-derived cutoff is off by a day for anyone far enough from UTC,
+    // which on a 3-day threshold is a 33% error. Filter in JS — this has no
+    // callers today and would only ever run once per cron tick.
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('is_active', true)
-      .eq('onboarding_completed', true)
-      .lte('last_active', cutoffDate.toISOString().split('T')[0]);
+      .eq('onboarding_completed', true);
 
     if (error) throw error;
-    return data || [];
+    return (data || []).filter(u => {
+      if (!u.last_active) return true; // never active at all
+      const cutoff = timezoneUtils.addDaysToDateString(
+        timezoneUtils.getLocalDateString(u.timezone || 'UTC'),
+        -days
+      );
+      return u.last_active <= cutoff;
+    });
   },
 
   async updateUserGoals(telegramId, goals) {
@@ -246,7 +300,10 @@ const userQueries = {
   },
 
   async setProgressiveStep(telegramId, step) {
-    const today = new Date().toISOString().split('T')[0];
+    // last_progressive_question_date gates one question per LOCAL day, so a
+    // UTC date could burn today's slot for tomorrow (or re-open one already
+    // used) for any user whose day differs from the server's.
+    const today = await localTodayFor('telegram_id', telegramId);
 
     const { data, error } = await supabase
       .from('users')

@@ -118,7 +118,7 @@ class WeeklyCron {
         return;
       }
 
-      await memoryService.updateMemory(user.id);
+      await memoryService.updateMemory(user.id, user.timezone || 'UTC');
 
       await this.sendWeeklyReview(user, review);
 
